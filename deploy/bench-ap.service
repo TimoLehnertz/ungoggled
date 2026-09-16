@@ -1,0 +1,15 @@
+[Unit]
+Description=Existing bench Pi Wi-Fi access point
+After=systemd-udev-settle.service dhcpcd.service
+Before=dnsmasq.service
+Wants=dnsmasq.service
+
+[Service]
+Type=simple
+ExecStartPre=/usr/local/lib/dji-hdmi/bench-ap.sh
+ExecStart=/usr/sbin/hostapd /etc/dji-hdmi/hostapd.conf
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

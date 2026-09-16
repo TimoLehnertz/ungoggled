@@ -1,0 +1,8 @@
+/target/
+/web/node_modules/
+/web/dist/
+/research/upstream/
+/research/captures/
+*.h264
+*.pcap*
+

@@ -1,0 +1,21 @@
+[Unit]
+Description=DJI Goggles HDMI receiver
+After=network.target
+
+[Service]
+Type=simple
+RuntimeDirectory=dji-hdmi
+Environment=GST_REGISTRY=/run/dji-hdmi/gstreamer-registry.bin
+Environment=DJI_HDMI_DECODER=v4l2h264dec
+EnvironmentFile=-/etc/default/dji-hdmi
+ExecStartPre=/usr/local/lib/dji-hdmi/prepare-pi.sh
+ExecStart=/usr/local/bin/dji-hdmi serve --listen 0.0.0.0:8090 --web-dir /usr/local/share/dji-hdmi/web --decoder ${DJI_HDMI_DECODER}
+Restart=on-failure
+RestartSec=3
+KillMode=control-group
+TimeoutStopSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

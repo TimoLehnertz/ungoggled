@@ -1,0 +1,9 @@
+{
+  "name": "dji-hdmi-control",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {"dev":"rsbuild dev", "build":"tsc --noEmit && rsbuild build", "preview":"rsbuild preview"},
+  "dependencies": {"react":"^19.1.0", "react-dom":"^19.1.0"},
+  "devDependencies": {"@rsbuild/core":"^1.5.0", "@rsbuild/plugin-react":"^1.4.0", "@tailwindcss/postcss":"^4.1.0", "tailwindcss":"^4.1.0", "typescript":"^5.9.0", "@types/react":"^19.1.0", "@types/react-dom":"^19.1.0"}
+}
