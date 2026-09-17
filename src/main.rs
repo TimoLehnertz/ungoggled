@@ -1,16 +1,20 @@
+mod api;
+mod assets;
 mod display;
 mod functionfs;
 mod gadget;
 mod h264;
+mod history;
 mod protocol;
+mod settings;
 mod video;
+mod wifi;
 
 use anyhow::Result;
 use axum::{
-    Json, Router,
+    Json,
     extract::State,
     http::{HeaderMap, StatusCode},
-    routing::{get, post},
 };
 use clap::{Args, Parser, Subcommand};
 use serde_json::{Value, json};
@@ -26,7 +30,6 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-use tower_http::services::ServeDir;
 
 #[derive(Parser)]
 #[command(
@@ -46,6 +49,10 @@ enum Commands {
         web_dir: PathBuf,
         #[arg(long)]
         no_autostart: bool,
+        #[arg(long, default_value = "/var/lib/dji-hdmi")]
+        data_dir: PathBuf,
+        #[arg(long, default_value = "/run/dji-hdmi")]
+        runtime_dir: PathBuf,
         #[command(flatten)]
         worker: WorkerArgs,
     },
@@ -55,6 +62,8 @@ enum Commands {
 }
 #[derive(Args, Clone)]
 pub struct WorkerArgs {
+    #[arg(long, default_value = "/run/dji-hdmi/video.sock")]
+    video_socket: PathBuf,
     #[arg(long,default_value="functionfs",value_parser=["functionfs","gadgetfs"])]
     transport: String,
     #[arg(long, default_value = "/dev/gadget")]
@@ -87,6 +96,12 @@ struct App {
     restart: Arc<AtomicU64>,
     shutdown: Arc<AtomicBool>,
     since: Instant,
+    settings: settings::Store,
+    history: Arc<Mutex<history::History>>,
+    preview: video::Preview,
+    operations: Arc<Mutex<()>>,
+    wifi_busy: Arc<AtomicBool>,
+    wifi_error: Arc<Mutex<Option<String>>>,
 }
 
 #[tokio::main]
@@ -111,8 +126,12 @@ async fn main() -> Result<()> {
             listen,
             web_dir,
             no_autostart,
-            worker,
+            data_dir,
+            runtime_dir,
+            mut worker,
         } => {
+            std::fs::create_dir_all(&runtime_dir)?;
+            worker.video_socket = runtime_dir.join("video.sock");
             let app = App {
                 status: Arc::new(Mutex::new(
                     json!({"phase":"stopped","video_bytes":0,"bitrate_mbps":0,"hdmi":"idle"}),
@@ -122,17 +141,35 @@ async fn main() -> Result<()> {
                 restart: Arc::new(AtomicU64::new(0)),
                 shutdown: Arc::new(AtomicBool::new(false)),
                 since: Instant::now(),
+                settings: settings::Store::open(data_dir)?,
+                history: Arc::new(Mutex::new(history::History::new())),
+                preview: Arc::new(Mutex::new(None)),
+                operations: Arc::new(Mutex::new(())),
+                wifi_busy: Arc::new(AtomicBool::new(false)),
+                wifi_error: Arc::new(Mutex::new(None)),
             };
             let listener = tokio::net::TcpListener::bind(&listen).await?;
+            let observed = app.clone();
+            let report: video::Report = Arc::new(move |event| observed.event(event));
+            let renderer = video::start(
+                worker.clone(),
+                app.settings.clone(),
+                report,
+                app.preview.clone(),
+                app.shutdown.clone(),
+            )?;
             let supervisor = supervise(app.clone(), worker);
-            let router = Router::new()
-                .route("/api/status", get(status))
-                .route("/api/diagnostics", get(|| async { Json(doctor()) }))
-                .route("/api/start", post(start))
-                .route("/api/stop", post(stop))
-                .route("/api/restart", post(restart))
-                .fallback_service(ServeDir::new(web_dir))
-                .with_state(app.clone());
+            let samples = app.clone();
+            let sampler = tokio::spawn(async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(1));
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                while !samples.shutdown.load(Ordering::Relaxed) {
+                    interval.tick().await;
+                    let s = samples.snapshot();
+                    samples.history.lock().unwrap().push(&s);
+                }
+            });
+            let router = api::router(app.clone(), web_dir);
             eprintln!("DJI HDMI control interface: http://{listen}");
             let stop_app = app.clone();
             axum::serve(listener, router)
@@ -146,22 +183,41 @@ async fn main() -> Result<()> {
                 .await?;
             app.shutdown.store(true, Ordering::Relaxed);
             let _ = supervisor.join();
+            let _ = renderer.join();
+            sampler.abort();
             Ok(())
         }
     }
 }
-async fn status(State(app): State<App>) -> Json<Value> {
-    let mut s = app.status.lock().unwrap().clone();
-    if let Some(last) = *app.last_output.lock().unwrap() {
-        s["output_age_ms"] = json!(last.elapsed().as_millis() as u64);
-        if last.elapsed() > Duration::from_secs(3) && s["hdmi"] == "playing" {
-            s["hdmi"] = json!("waiting for frames");
-            s["output_fps"] = json!(0);
+impl App {
+    fn event(&self, event: Value) {
+        if let Value::Object(event) = event {
+            if event.contains_key("output_frames") {
+                *self.last_output.lock().unwrap() = Some(Instant::now());
+            }
+            self.status
+                .lock()
+                .unwrap()
+                .as_object_mut()
+                .unwrap()
+                .extend(event);
         }
     }
-    s["enabled"] = json!(app.enabled.load(Ordering::Relaxed));
-    s["uptime_seconds"] = json!(app.since.elapsed().as_secs());
-    Json(s)
+    fn snapshot(&self) -> Value {
+        let mut s = self.status.lock().unwrap().clone();
+        if let Some(last) = *self.last_output.lock().unwrap() {
+            s["output_age_ms"] = json!(last.elapsed().as_millis() as u64);
+            if last.elapsed() > Duration::from_secs(3) && s["hdmi"] == "playing" {
+                s["hdmi"] = json!("waiting for frames");
+                s["output_fps"] = json!(0);
+            }
+        }
+        s["enabled"] = json!(self.enabled.load(Ordering::Relaxed));
+        s["uptime_seconds"] = json!(self.since.elapsed().as_secs());
+        s["temperature_c"] = json!(history::temperature());
+        s["version"] = json!(env!("CARGO_PKG_VERSION"));
+        s
+    }
 }
 fn guard(headers: &HeaderMap) -> Result<(), StatusCode> {
     // Requiring a custom header blocks cross-site forms; no CORS is enabled.
@@ -212,6 +268,7 @@ fn supervise(app: App, args: WorkerArgs) -> thread::JoinHandle<()> {
                 "--accessory-pid",
                 &args.accessory_pid.to_string(),
             ]);
+            cmd.arg("--video-socket").arg(&args.video_socket);
             if let Some(c) = &args.controller {
                 cmd.args(["--controller", c]);
             }
@@ -239,9 +296,7 @@ fn supervise(app: App, args: WorkerArgs) -> thread::JoinHandle<()> {
                     Ok(())
                 });
             }
-            *app.last_output.lock().unwrap() = None;
-            *app.status.lock().unwrap() =
-                json!({"phase":"starting","video_bytes":0,"bitrate_mbps":0,"hdmi":"idle"});
+            app.event(json!({"phase":"starting","video_bytes":0,"bitrate_mbps":0}));
             match cmd.spawn() {
                 Ok(mut child) => {
                     let state = app.status.clone();
@@ -297,7 +352,6 @@ fn supervise(app: App, args: WorkerArgs) -> thread::JoinHandle<()> {
                     "stopped"
                 });
                 s["bitrate_mbps"] = json!(0);
-                s["hdmi"] = json!("idle");
             }
             for _ in 0..20 {
                 if app.shutdown.load(Ordering::Relaxed) {

@@ -6,3 +6,9 @@
 *.h264
 *.pcap*
 
+
+/build/
+/dist/
+/.test-state/
+
+__pycache__/

@@ -1,0 +1,13 @@
+[Unit]
+Description=DJI HDMI device initialization
+After=local-fs.target
+Before=NetworkManager.service ssh.service dji-hdmi.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/dji-hdmi/firstboot.sh
+RemainAfterExit=yes
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

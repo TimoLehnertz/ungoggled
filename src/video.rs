@@ -1,332 +1,521 @@
-use crate::WorkerArgs;
+//! One display owner for the lifetime of the service. USB workers only deliver
+//! compressed bytes; reconnecting them never removes the fallback framebuffer.
+use crate::{WorkerArgs, settings::Store};
+use serde_json::{Value, json};
 use std::{
-    io::{BufRead, BufReader, Write},
-    os::fd::AsRawFd,
+    io::{BufRead, BufReader, Read, Write},
+    os::{
+        fd::AsRawFd,
+        unix::{
+            net::{UnixDatagram, UnixStream},
+            process::CommandExt,
+        },
+    },
+    path::Path,
     process::{Child, Command, Stdio},
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
-        mpsc::{SyncSender, TrySendError, sync_channel},
+        mpsc::{self, SyncSender},
     },
     thread,
     time::{Duration, Instant},
 };
+pub type Report = Arc<dyn Fn(Value) + Send + Sync>;
+pub type Preview = Arc<Mutex<Option<(Instant, Vec<u8>)>>>;
 
+// Sequence every datagram so a full socket cannot silently corrupt an H.264 NAL.
+pub struct Output {
+    socket: Option<UnixDatagram>,
+    sequence: AtomicU64,
+}
+impl Output {
+    pub fn connect(path: &Path) -> Self {
+        let socket = UnixDatagram::unbound()
+            .and_then(|s| {
+                s.connect(path)?;
+                s.set_nonblocking(true)?;
+                Ok(s)
+            })
+            .ok();
+        Self {
+            socket,
+            sequence: AtomicU64::new(0),
+        }
+    }
+    pub fn send(&self, payload: Vec<u8>) {
+        let Some(socket) = &self.socket else {
+            return;
+        };
+        for bytes in payload.chunks(32 * 1024) {
+            let mut packet = self
+                .sequence
+                .fetch_add(1, Ordering::Relaxed)
+                .to_le_bytes()
+                .to_vec();
+            packet.extend_from_slice(bytes);
+            let _ = socket.send(&packet);
+        }
+    }
+}
 struct Chunk {
     data: Vec<u8>,
     received: Instant,
 }
-
-pub struct Output {
-    tx: SyncSender<Chunk>,
-    discontinuity: Arc<AtomicBool>,
-    queued_bytes: Arc<AtomicUsize>,
+struct Player {
+    child: Child,
+    heartbeat: Arc<Mutex<Option<Instant>>>,
+    active: Arc<AtomicBool>,
 }
-impl Output {
-    pub fn send(&self, payload: Vec<u8>) {
-        // USB reception must not wait for HDMI. Cap both message count and bytes.
-        let len = payload.len();
-        let previous = self.queued_bytes.fetch_add(len, Ordering::Relaxed);
-        if previous.saturating_add(len) > 2 * 1024 * 1024 {
-            self.queued_bytes.fetch_sub(len, Ordering::Relaxed);
-            self.discontinuity.store(true, Ordering::Relaxed);
-            return;
-        }
-        if let Err(e) = self.tx.try_send(Chunk {
-            data: payload,
-            received: Instant::now(),
-        }) {
-            self.queued_bytes.fetch_sub(len, Ordering::Relaxed);
-            if matches!(e, TrySendError::Full(_)) {
-                self.discontinuity.store(true, Ordering::Relaxed);
-            }
-        }
-    }
-}
-struct Player(Child, Arc<AtomicU64>, Instant);
 impl Drop for Player {
     fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
+        self.active.store(false, Ordering::Relaxed);
+        let _ = self.child.kill();
+        let _ = self.child.wait();
     }
 }
 
-pub fn start(args: &WorkerArgs) -> Output {
-    let (tx, rx) = sync_channel::<Chunk>(1024);
-    let discontinuity = Arc::new(AtomicBool::new(false));
-    let reset = discontinuity.clone();
-    let queued_bytes = Arc::new(AtomicUsize::new(0));
-    let queued = queued_bytes.clone();
-    let args = args.clone();
-    thread::spawn(move || {
+pub fn start(
+    args: WorkerArgs,
+    store: Store,
+    report: Report,
+    preview: Preview,
+    shutdown: Arc<AtomicBool>,
+) -> anyhow::Result<thread::JoinHandle<()>> {
+    if args.video_socket.exists() {
+        std::fs::remove_file(&args.video_socket)?;
+    }
+    let socket = UnixDatagram::bind(&args.video_socket)?;
+    socket.set_read_timeout(Some(Duration::from_millis(200)))?;
+    let (tx, rx) = mpsc::sync_channel::<Chunk>(1024);
+    let queued = Arc::new(AtomicUsize::new(0));
+    let lost = Arc::new(AtomicBool::new(false));
+    let receive_stop = shutdown.clone();
+    let q = queued.clone();
+    let loss = lost.clone();
+    thread::spawn(move || receive(socket, tx, q, loss, receive_stop));
+    Ok(thread::spawn(move || {
         let mut child: Option<Player> = None;
+        let mut display: Option<crate::display::Display> = None;
+        let mut current = store.get();
         let mut annex = crate::h264::AnnexB::default();
         let mut parameters = crate::h264::Parameters::default();
-        let mut display: Option<crate::display::Display> = None;
-        let mut display_check = Instant::now();
         let mut last_input: Option<Instant> = None;
-        let mut decoder_starts = 0_u64;
-        for chunk in &rx {
-            let data = chunk.data;
-            queued.fetch_sub(data.len(), Ordering::Relaxed);
+        let mut last_frame: Option<Instant> = None;
+        let mut prepare_at = Instant::now() - Duration::from_secs(5);
+        let mut stats_at = Instant::now();
+        let mut frames = 0_u64;
+        let mut starts = 0_u64;
+        while !shutdown.load(Ordering::Relaxed) {
+            let settings = store.get();
+            if settings != current {
+                child = None;
+                display = None;
+                current = settings;
+                annex = Default::default();
+                *preview.lock().unwrap() = None;
+                prepare_at = Instant::now() - Duration::from_secs(5);
+            }
+            if display.as_ref().is_some_and(|d| d.needs_upgrade()) {
+                child = None;
+                display = None;
+            }
+            if args.output == "hdmi"
+                && display.is_none()
+                && prepare_at.elapsed() > Duration::from_secs(3)
+            {
+                prepare_at = Instant::now();
+                let image = current
+                    .fallback_image
+                    .as_ref()
+                    .map(|id| store.dir.join("images").join(id));
+                match crate::display::Display::prepare(
+                    args.connector,
+                    &current.hdmi_mode,
+                    image.as_deref(),
+                ) {
+                    Ok(d) => {
+                        report(d.info.clone());
+                        child = None;
+                        display = Some(d);
+                    }
+                    Err(e) => {
+                        report(json!({"hdmi":"unavailable","display_error":format!("{e:#}")}))
+                    }
+                }
+            }
+            if child
+                .as_mut()
+                .is_some_and(|p| p.child.try_wait().ok().flatten().is_some())
+            {
+                child = None;
+            }
+            let heartbeat = child.as_ref().and_then(|p| *p.heartbeat.lock().unwrap());
+            if let Some(t) = heartbeat {
+                last_frame = Some(t);
+            }
+            let input_gone = last_input.is_none_or(|t| t.elapsed() > Duration::from_millis(1500));
+            let decoder_stalled =
+                child.is_some() && last_frame.is_some_and(|t| t.elapsed() > Duration::from_secs(3));
+            if input_gone || decoder_stalled {
+                child = None;
+            }
+            if child.is_none() {
+                *preview.lock().unwrap() = None;
+                report(
+                    json!({"hdmi":if args.output=="hdmi" && display.is_some(){"fallback"}else{"idle"},"output_fps":0}),
+                );
+            }
+            if stats_at.elapsed() >= Duration::from_secs(1) {
+                report(json!({"input_fps":frames as f64/stats_at.elapsed().as_secs_f64()}));
+                stats_at = Instant::now();
+                frames = 0;
+            }
+            let chunk = match rx.recv_timeout(Duration::from_millis(100)) {
+                Ok(c) => c,
+                Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(_) => break,
+            };
+            queued.fetch_sub(chunk.data.len(), Ordering::Relaxed);
             if args.output == "none" {
                 continue;
             }
-            if last_input.is_some_and(|last| {
-                chunk.received.duration_since(last) > Duration::from_millis(750)
+            if last_input.is_some_and(|t| {
+                chunk.received.saturating_duration_since(t) > Duration::from_millis(750)
             }) {
-                // A transmission-mode change can interrupt a NAL halfway through.
-                // Never concatenate data from before and after that interruption.
-                eprintln!("Camera input interrupted for more than 750 ms; waiting for fresh SPS");
                 child = None;
-                annex = crate::h264::AnnexB::default();
+                annex = Default::default();
             }
             last_input = Some(chunk.received);
-            if child.as_ref().is_some_and(|c| {
-                let elapsed = c.2.elapsed().as_millis() as u64;
-                elapsed > 3000 && elapsed.saturating_sub(c.1.load(Ordering::Relaxed)) > 1500
-            }) {
-                eprintln!("Decoder stopped producing frames; waiting for fresh SPS");
+            if lost.swap(false, Ordering::Relaxed) {
                 child = None;
-            }
-            if reset.swap(false, Ordering::Relaxed) {
-                child = None;
-                annex = crate::h264::AnnexB::default();
-                eprintln!("HDMI queue overrun; waiting for fresh SPS");
-                while let Ok(data) = rx.try_recv() {
-                    queued.fetch_sub(data.data.len(), Ordering::Relaxed);
+                annex = Default::default();
+                report(json!({"message":"Video queue overrun; recovering at next keyframe"}));
+                while let Ok(c) = rx.try_recv() {
+                    queued.fetch_sub(c.data.len(), Ordering::Relaxed);
                 }
                 continue;
             }
-            if args.output == "hdmi" && display_check.elapsed() > Duration::from_secs(1) {
-                display_check = Instant::now();
-                if display.as_ref().is_some_and(|d| d.needs_upgrade()) {
-                    eprintln!("Monitor now advertises 1080p; upgrading HDMI output");
-                    child = None;
-                    display = None;
-                }
-            }
-            let units = match annex.feed(&data) {
-                Ok(units) => units,
+            let units = match annex.feed(&chunk.data) {
+                Ok(v) => v,
                 Err(e) => {
                     child = None;
-                    eprintln!("{e}");
+                    report(json!({"message":e}));
                     continue;
                 }
             };
-            for data in units {
-                if parameters.changed(&data) {
-                    eprintln!("Camera SPS changed; restarting decoder");
-                    child = None;
-                    println!(
-                        "{}",
-                        serde_json::json!({"hdmi":"reconfiguring",
-                        "message":"Camera stream parameters changed; restarting decoder"})
-                    );
-                }
-                if child
-                    .as_mut()
-                    .is_some_and(|c| c.0.try_wait().ok().flatten().is_some())
+            for nal in units {
+                if matches!(nal.get(3).map(|v| v & 31), Some(1 | 5))
+                    && nal.get(4).is_some_and(|v| v & 0x80 != 0)
                 {
+                    frames += 1;
+                }
+                if parameters.changed(&nal) {
                     child = None;
                 }
-                let payload = if child.is_none() {
-                    if data.get(3).map(|b| b & 31) != Some(7) {
+                if child.is_none() {
+                    if nal.get(3).map(|b| b & 31) != Some(7) {
                         continue;
                     }
+                    let mut playback_args = args.clone();
                     if args.output == "hdmi" && display.is_none() {
-                        match crate::display::Display::prepare(args.connector) {
-                            Ok(d) => display = Some(d),
-                            Err(e) => eprintln!("HDMI mode: {e:#}"),
-                        }
+                        playback_args.output = "test".into();
                     }
-                    let mut cmd = Command::new("gst-launch-1.0");
-                    cmd.args([
-                        "-v",
-                        "fdsrc",
-                        "fd=0",
-                        "blocksize=65536",
-                        "do-timestamp=true",
-                        "!",
-                        "h264parse",
-                        "config-interval=-1",
-                        "!",
-                        "video/x-h264,stream-format=byte-stream,alignment=au",
-                        "!",
-                        &args.decoder,
-                        "!",
-                        "queue",
-                        "max-size-buffers=2",
-                        "max-size-bytes=0",
-                        "max-size-time=0",
-                        "leaky=downstream",
-                        "!",
-                    ]);
-                    let sink = if args.output == "hdmi" {
-                        let mut sink = "kmssink sync=false".to_string();
-                        if let Some(id) = args.connector {
-                            sink.push_str(&format!(" connector-id={id}"));
-                        }
-                        sink
-                    } else {
-                        "fakesink sync=false".to_string()
-                    };
-                    cmd.args([
-                        "fpsdisplaysink",
-                        &format!("video-sink={sink}"),
-                        "text-overlay=false",
-                        "sync=false",
-                        "fps-update-interval=250",
-                    ]);
-                    match cmd
-                        .stdin(Stdio::piped())
-                        .stdout(Stdio::piped())
-                        .stderr(Stdio::inherit())
-                        .spawn()
-                    {
-                        Ok(mut c) => {
-                            let fd = c.stdin.as_ref().unwrap().as_raw_fd();
-                            let nonblocking = unsafe {
-                                let flags = libc::fcntl(fd, libc::F_GETFL);
-                                flags >= 0
-                                    && libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) >= 0
-                            };
-                            if !nonblocking {
-                                let _ = c.kill();
-                                let _ = c.wait();
-                                eprintln!("Cannot make decoder pipe nonblocking");
-                                continue;
-                            }
-                            let bus = c.stdout.take().unwrap();
-                            let began = Instant::now();
-                            let heartbeat = Arc::new(AtomicU64::new(0));
-                            let observed = heartbeat.clone();
-                            thread::spawn(move || {
-                                for line in BufReader::new(bus).lines().map_while(Result::ok) {
-                                    if let Some((width, height)) = input_size(&line) {
-                                        println!(
-                                            "{}",
-                                            serde_json::json!({"input_width":width,"input_height":height})
-                                        );
-                                    }
-                                    if let Some((frames, fps)) = frame_stats(&line) {
-                                        observed.store(
-                                            began.elapsed().as_millis() as u64,
-                                            Ordering::Relaxed,
-                                        );
-                                        println!(
-                                            "{}",
-                                            serde_json::json!({
-                                                "hdmi":"playing", "output_frames":frames,
-                                                "output_fps":fps, "message":"Video frames reaching output"
-                                            })
-                                        );
-                                    }
-                                }
-                            });
-                            child = Some(Player(c, heartbeat, began));
-                            decoder_starts += 1;
-                            println!(
-                                "{}",
-                                serde_json::json!({"hdmi":"starting", "decoder_starts":decoder_starts})
-                            );
+                    match spawn_player(
+                        &playback_args,
+                        current.preview_enabled,
+                        report.clone(),
+                        preview.clone(),
+                    ) {
+                        Ok(p) => {
+                            child = Some(p);
+                            starts += 1;
+                            last_frame = Some(Instant::now());
+                            report(json!({"decoder_starts":starts,"hdmi":"starting"}));
                         }
                         Err(e) => {
-                            eprintln!("Start video decoder: {e}");
-                            println!(
-                                "{}",
-                                serde_json::json!({"hdmi":"error","message":e.to_string()})
-                            );
+                            report(json!({"hdmi":"error","message":format!("Decoder: {e:#}")}));
                             continue;
                         }
                     }
-                    data
-                } else {
-                    data
-                };
-                if let Some(c) = child.as_mut()
-                    && let Err(e) = write_with_deadline(c.0.stdin.as_mut().unwrap(), &payload)
+                }
+                if let Some(p) = &mut child
+                    && let Err(e) = write_deadline(p.child.stdin.as_mut().unwrap(), &nal)
                 {
-                    eprintln!("Video pipeline: {e}");
                     child = None;
-                    println!(
-                        "{}",
-                        serde_json::json!({"hdmi":"error","message":e.to_string()})
-                    );
+                    report(json!({"message":format!("Decoder input: {e}")}));
+                }
+            }
+        }
+        drop(child);
+        drop(display);
+        let _ = std::fs::remove_file(&args.video_socket);
+    }))
+}
+fn receive(
+    socket: UnixDatagram,
+    tx: SyncSender<Chunk>,
+    queued: Arc<AtomicUsize>,
+    lost: Arc<AtomicBool>,
+    stop: Arc<AtomicBool>,
+) {
+    let mut buf = vec![0; 32776];
+    let mut expected = None;
+    while !stop.load(Ordering::Relaxed) {
+        let n = match socket.recv(&mut buf) {
+            Ok(n) => n,
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                continue;
+            }
+            Err(_) => break,
+        };
+        if n < 8 {
+            continue;
+        }
+        let seq = u64::from_le_bytes(buf[..8].try_into().unwrap());
+        if expected.is_some_and(|s| s != seq) {
+            lost.store(true, Ordering::Relaxed);
+        }
+        expected = Some(seq.wrapping_add(1));
+        let len = n - 8;
+        if queued.fetch_add(len, Ordering::Relaxed) + len > 2 * 1024 * 1024 {
+            queued.fetch_sub(len, Ordering::Relaxed);
+            lost.store(true, Ordering::Relaxed);
+            continue;
+        }
+        if tx
+            .try_send(Chunk {
+                data: buf[8..n].to_vec(),
+                received: Instant::now(),
+            })
+            .is_err()
+        {
+            queued.fetch_sub(len, Ordering::Relaxed);
+            lost.store(true, Ordering::Relaxed);
+        }
+    }
+}
+fn spawn_player(
+    args: &WorkerArgs,
+    show_preview: bool,
+    report: Report,
+    preview: Preview,
+) -> anyhow::Result<Player> {
+    let mut cmd = Command::new("gst-launch-1.0");
+    cmd.args([
+        "-v",
+        "fdsrc",
+        "fd=0",
+        "blocksize=65536",
+        "do-timestamp=true",
+        "!",
+        "h264parse",
+        "config-interval=-1",
+        "!",
+        "video/x-h264,stream-format=byte-stream,alignment=au",
+        "!",
+        &args.decoder,
+        "!",
+        "tee",
+        "name=decoded",
+        "decoded.",
+        "!",
+        "queue",
+        "max-size-buffers=2",
+        "max-size-bytes=0",
+        "max-size-time=0",
+        "leaky=downstream",
+        "!",
+    ]);
+    let mut sink = if args.output == "hdmi" {
+        // Avoid libdrm probing unrelated drivers during every stream restart.
+        "kmssink driver-name=vc4 sync=false".to_owned()
+    } else {
+        "fakesink sync=false".to_owned()
+    };
+    if args.output == "hdmi"
+        && let Some(id) = args.connector
+    {
+        sink += &format!(" connector-id={id}");
+    }
+    cmd.args([
+        "fpsdisplaysink",
+        &format!("video-sink={sink}"),
+        "text-overlay=false",
+        "sync=false",
+        "fps-update-interval=500",
+    ]);
+    let (reader, writer) = UnixStream::pair()?;
+    if show_preview {
+        cmd.args([
+            "decoded.",
+            "!",
+            "queue",
+            "max-size-buffers=1",
+            "max-size-bytes=0",
+            "max-size-time=0",
+            "leaky=downstream",
+            "!",
+            "videorate",
+            "drop-only=true",
+            "!",
+            "video/x-raw,framerate=5/1",
+            "!",
+            "videoscale",
+            "!",
+            "videoconvert",
+            "!",
+            "video/x-raw,width=640,height=360,format=I420",
+            "!",
+            "jpegenc",
+            "quality=65",
+            "!",
+            "fdsink",
+            "fd=3",
+            "sync=false",
+            "async=false",
+        ]);
+        let fd = writer.as_raw_fd();
+        unsafe {
+            cmd.pre_exec(move || {
+                if libc::dup2(fd, 3) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+    }
+    let mut child = cmd
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()?;
+    drop(writer);
+    let active = Arc::new(AtomicBool::new(true));
+    if show_preview {
+        let active = active.clone();
+        thread::spawn(move || read_jpegs(reader, preview, active));
+    }
+    let fd = child.stdin.as_ref().unwrap().as_raw_fd();
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+        let _ = child.kill();
+        let _ = child.wait();
+        anyhow::bail!("Cannot configure decoder pipe");
+    }
+    let bus = child.stdout.take().unwrap();
+    let heartbeat = Arc::new(Mutex::new(None));
+    let beat = heartbeat.clone();
+    let running = active.clone();
+    let hdmi = args.output == "hdmi";
+    thread::spawn(move || {
+        for line in BufReader::new(bus).lines().map_while(Result::ok) {
+            if !running.load(Ordering::Relaxed) {
+                break;
+            }
+            if let Some((w, h, fps)) = input_caps(&line) {
+                report(json!({"input_width":w,"input_height":h,"input_nominal_fps":fps}));
+            }
+            if let Some((frames, fps)) = frame_stats(&line) {
+                *beat.lock().unwrap() = Some(Instant::now());
+                if hdmi {
+                    report(json!({"hdmi":"playing","output_frames":frames,"output_fps":fps}));
                 }
             }
         }
     });
-    Output {
-        tx,
-        discontinuity,
-        queued_bytes,
+    Ok(Player {
+        child,
+        heartbeat,
+        active,
+    })
+}
+fn read_jpegs(mut reader: UnixStream, preview: Preview, active: Arc<AtomicBool>) {
+    let mut buffer = Vec::new();
+    let mut bytes = [0; 16384];
+    while let Ok(n) = reader.read(&mut bytes) {
+        if n == 0 || !active.load(Ordering::Relaxed) {
+            break;
+        }
+        buffer.extend_from_slice(&bytes[..n]);
+        while let Some(end) = buffer.windows(2).position(|b| b == [0xff, 0xd9]) {
+            let frame: Vec<_> = buffer.drain(..end + 2).collect();
+            if frame.starts_with(&[0xff, 0xd8]) {
+                *preview.lock().unwrap() = Some((Instant::now(), frame));
+            }
+        }
+        if buffer.len() > 2 * 1024 * 1024 {
+            buffer.clear();
+        }
     }
 }
-
-fn write_with_deadline(writer: &mut impl Write, mut bytes: &[u8]) -> std::io::Result<()> {
-    let started = Instant::now();
+fn write_deadline(writer: &mut impl Write, mut bytes: &[u8]) -> std::io::Result<()> {
+    let start = Instant::now();
     while !bytes.is_empty() {
         match writer.write(bytes) {
             Ok(0) => return Err(std::io::ErrorKind::WriteZero.into()),
             Ok(n) => bytes = &bytes[n..],
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                if started.elapsed() > Duration::from_secs(3) {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::TimedOut,
-                        "Decoder stalled for 3 seconds",
-                    ));
+                if start.elapsed() > Duration::from_millis(1000) {
+                    return Err(std::io::ErrorKind::TimedOut.into());
                 }
                 thread::sleep(Duration::from_millis(2));
             }
-            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
             Err(e) => return Err(e),
         }
     }
     Ok(())
 }
-
-// fpsdisplaysink reports rendered buffers, unlike pipeline state alone, which
-// can say PLAYING even when the decoder never produces an image.
 fn frame_stats(line: &str) -> Option<(u64, f64)> {
     let (_, rest) = line.split_once("last-message = rendered: ")?;
-    let frames = rest.split(',').next()?.trim().parse().ok()?;
+    let n = rest.split(',').next()?.trim().parse().ok()?;
     let (_, rest) = rest.split_once("current: ")?;
     let fps: f64 = rest.split(',').next()?.trim().parse().ok()?;
-    fps.is_finite().then_some((frames, fps))
+    fps.is_finite().then_some((n, fps))
 }
-
-fn input_size(line: &str) -> Option<(u32, u32)> {
+fn input_caps(line: &str) -> Option<(u32, u32, Option<f64>)> {
     if !line.contains("h264parse0.GstPad:src: caps =") {
         return None;
     }
-    let number = |name: &str| -> Option<u32> {
-        line.split_once(name)?
-            .1
-            .split(',')
-            .next()?
-            .trim()
-            .parse()
-            .ok()
+    let value = |key: &str| {
+        line.split_once(key)
+            .and_then(|(_, s)| s.split(',').next())
+            .map(str::trim)
     };
-    Some((number("width=(int)")?, number("height=(int)")?))
+    let fps = value("framerate=(fraction)")
+        .and_then(|s| s.split_once('/'))
+        .and_then(|(n, d)| Some((n.parse::<f64>().ok()?, d.parse::<f64>().ok()?)))
+        .and_then(|(n, d)| (d > 0.0).then_some(n / d));
+    Some((
+        value("width=(int)")?.parse().ok()?,
+        value("height=(int)")?.parse().ok()?,
+        fps,
+    ))
 }
-
 #[cfg(test)]
 mod tests {
-    use super::frame_stats;
+    use super::*;
     #[test]
-    fn output_stats_require_rendered_frames() {
-        assert_eq!(frame_stats("New clock: GstSystemClock"), None);
+    fn stats_distinguish_nominal_rate_and_output() {
         assert_eq!(
-            frame_stats(
-                "fpsdisplaysink0: last-message = rendered: 42, dropped: 0, current: 29.98, average: 30.01"
-            ),
+            frame_stats("last-message = rendered: 42, dropped: 0, current: 29.98, average: 30.01"),
             Some((42, 29.98))
         );
         assert_eq!(
             frame_stats("last-message = rendered: 0, current: NaN"),
             None
+        );
+        assert_eq!(
+            input_caps(
+                "h264parse0.GstPad:src: caps = video/x-h264, width=(int)1920, height=(int)1080, framerate=(fraction)30000/1001"
+            ),
+            Some((1920, 1080, Some(30000.0 / 1001.0)))
         );
     }
 }

@@ -8,6 +8,7 @@ use drm::{
 use std::{
     fs::{self, File, OpenOptions},
     os::fd::{AsFd, BorrowedFd},
+    path::Path,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -27,13 +28,25 @@ impl drm::control::Device for Card {}
 
 pub struct Display {
     _card: Arc<Card>,
+    pub info: serde_json::Value,
     upgrade: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
     // The DRM file owns the black primary framebuffer and its backing buffer.
     // Keep it open across decoder restarts; kmssink owns only the video overlay.
 }
 
-fn select_mode(modes: &[Mode]) -> Option<Mode> {
+fn mode_id(m: &Mode) -> String {
+    format!("{}x{}@{}", m.size().0, m.size().1, m.vrefresh())
+}
+
+fn select_mode(modes: &[Mode], requested: &str) -> Option<Mode> {
+    if requested != "auto"
+        && let Some(m) = modes
+            .iter()
+            .find(|m| mode_id(m) == requested && !m.flags().contains(ModeFlags::INTERLACE))
+    {
+        return Some(*m);
+    }
     let progressive = |m: &&Mode| !m.flags().contains(ModeFlags::INTERLACE);
     modes
         .iter()
@@ -52,7 +65,11 @@ fn select_mode(modes: &[Mode]) -> Option<Mode> {
 }
 
 impl Display {
-    pub fn prepare(requested: Option<u32>) -> Result<Self> {
+    pub fn prepare(
+        requested: Option<u32>,
+        mode_request: &str,
+        fallback: Option<&Path>,
+    ) -> Result<Self> {
         let mut paths: Vec<_> = fs::read_dir("/dev/dri")?
             .flatten()
             .filter(|e| e.file_name().to_string_lossy().starts_with("card"))
@@ -77,8 +94,8 @@ impl Display {
                 if con.state() != connector::State::Connected {
                     continue;
                 }
-                let mode =
-                    select_mode(con.modes()).context("No supported progressive HDMI mode")?;
+                let mode = select_mode(con.modes(), mode_request)
+                    .context("No supported progressive HDMI mode")?;
                 let encoder = con
                     .current_encoder()
                     .or_else(|| con.encoders().first().copied())
@@ -93,35 +110,46 @@ impl Display {
                             .copied()
                     })
                     .context("HDMI CRTC missing")?;
-                let current = card.get_crtc(crtc)?;
-                if current.mode() != Some(mode) {
-                    card.acquire_master_lock()
-                        .context("Acquire DRM for HDMI mode change")?;
-                    let result = (|| -> Result<()> {
-                        let (w, h) = mode.size();
-                        let mut buffer =
-                            card.create_dumb_buffer((w.into(), h.into()), DrmFourcc::Xrgb8888, 32)?;
-                        card.map_dumb_buffer(&mut buffer)?.as_mut().fill(0);
-                        let fb = card.add_framebuffer(&buffer, 24, 32)?;
-                        card.set_crtc(crtc, Some(fb), (0, 0), &[handle], Some(mode))?;
-                        Ok(())
-                    })();
-                    let release = card.release_master_lock();
-                    result.context("Set HDMI mode")?;
-                    release?;
-                } else {
-                    // Opening the first card fd can itself confer DRM master.
-                    let _ = card.release_master_lock();
-                }
-                println!(
-                    "{}",
-                    serde_json::json!({"hdmi_width":mode.size().0,
-                    "hdmi_height":mode.size().1,"hdmi_hz":mode.vrefresh()})
-                );
+                // Always own a primary framebuffer, including when the mode is already
+                // correct. The live decoder uses an overlay; its removal reveals this image.
+                card.acquire_master_lock()
+                    .context("Acquire DRM for HDMI image")?;
+                let result = (|| -> Result<()> {
+                    let (w, h) = mode.size();
+                    let mut buffer =
+                        card.create_dumb_buffer((w.into(), h.into()), DrmFourcc::Xrgb8888, 32)?;
+                    use drm::buffer::Buffer as _;
+                    let pitch = buffer.pitch() as usize;
+                    let pixels = crate::assets::pixels(fallback, w.into(), h.into());
+                    let mut mapped = card.map_dumb_buffer(&mut buffer)?;
+                    for (y, row) in pixels.chunks_exact(w as usize * 4).enumerate() {
+                        mapped.as_mut()[y * pitch..y * pitch + row.len()].copy_from_slice(row);
+                    }
+                    drop(mapped);
+                    let fb = card.add_framebuffer(&buffer, 24, 32)?;
+                    card.set_crtc(crtc, Some(fb), (0, 0), &[handle], Some(mode))?;
+                    Ok(())
+                })();
+                let release = card.release_master_lock();
+                result.context("Set HDMI mode and fallback")?;
+                release?;
+                let modes: Vec<_> = con
+                    .modes()
+                    .iter()
+                    .filter(|m| {
+                        m.size().0 <= 1920
+                            && m.size().1 <= 1080
+                            && m.vrefresh() <= 60
+                            && !m.flags().contains(ModeFlags::INTERLACE)
+                    })
+                    .map(mode_id)
+                    .collect();
+                let info = serde_json::json!({"hdmi_width":mode.size().0,"hdmi_height":mode.size().1,"hdmi_hz":mode.vrefresh(),"hdmi_modes":modes,"hdmi_requested_mode":mode_request});
                 let card = Arc::new(card);
                 let upgrade = Arc::new(AtomicBool::new(false));
                 let stop = Arc::new(AtomicBool::new(false));
-                if mode.size() != (1920, 1080) {
+                {
+                    let preferred = mode_request.to_owned();
                     // EDID probing may block for a second on this legacy kernel.
                     // Keep it off the decoder thread and reuse the same DRM fd.
                     let probe = card.clone();
@@ -129,15 +157,17 @@ impl Display {
                     let stopped = stop.clone();
                     thread::spawn(move || {
                         while !stopped.load(Ordering::Relaxed) {
-                            thread::sleep(Duration::from_secs(1));
+                            thread::sleep(Duration::from_secs(3));
                             if stopped.load(Ordering::Relaxed) {
                                 break;
                             }
                             if probe
                                 .get_connector(handle, true)
                                 .ok()
-                                .and_then(|c| select_mode(c.modes()))
-                                .is_some_and(|m| m.size() == (1920, 1080))
+                                .and_then(|c| select_mode(c.modes(), &preferred))
+                                .is_some_and(|m| {
+                                    m != mode && (preferred != "auto" || m.size().0 > mode.size().0)
+                                })
                             {
                                 pending.store(true, Ordering::Relaxed);
                                 break;
@@ -147,6 +177,7 @@ impl Display {
                 }
                 return Ok(Self {
                     _card: card,
+                    info,
                     upgrade,
                     stop,
                 });

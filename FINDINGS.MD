@@ -100,8 +100,9 @@ which includes unrelated commands.
 | Goggles 3 + O3 live USB and HDMI | PENDING hardware test. |
 | Receiver process replacement after successful negotiation | PASS: normal AOA negotiation with default `18d1:2d00` returns to live streaming without a goggles reboot. Earlier cold-accessory experiments are no longer necessary. |
 | Monitor attached after headless start | PASS: Rust DRM mode selection upgraded 1024×768 fallback to 1920×1080 at 60 Hz while retaining 1080p30 camera input. |
-| Low-power-state toggles and clean feed | IN PROGRESS: owner reported blackouts and embedded OSD; recovery changes deployed and source setting adjusted for retest. |
-| Physical USB reconnect / air-unit power cycle / O3 switch | PENDING. |
+| Low-power-state toggles and clean feed | PASS: owner retested full-HD clean output and toggled Auto Low-Power State off/on, reporting “All works well.” Exact blackout duration was not measured. |
+| Pi reboot with Goggles 3 + O4 Pro connected | PASS: standalone Wi-Fi and receiver start automatically; full AOA negotiation, 1080p input, one decoder start and zero USB resync bytes observed. |
+| Physical USB reconnect / air-unit power cycle / O3 switch | Separate physical tests still pending. |
 
 The Pi clock is set to February 2020. Its journal timestamps are not the test
 date. Capture bounded samples and use session-relative statistics.
@@ -272,3 +273,83 @@ The installed service then completed normal AOA negotiation and sustained
 `decoder_starts: 1` and zero USB resynchronization bytes. Local-network HTTP
 access was intermittent during this period even while SSH and loopback API
 requests worked; it subsequently recovered. Root cause remains unconfirmed.
+
+### Owner confirmation, September 16
+
+The owner completed the requested HDMI test, including clean video, image
+sharpness, and Auto Low-Power State off/on transitions, and reported that all
+works well. The monitor was disconnected afterwards. This confirms the O4 Pro
+visual test; it does not establish a numerical blackout duration or O3 support.
+
+### Reboot validation, September 16
+
+After `systemctl reboot`, the Pi returned with its standalone AP and installed
+receiver active. The PC rejoined the saved Wi-Fi network. The receiver performed
+all six AOA identifying-string exchanges and resumed 1920×1080 O4 video without
+a manual application restart. Status showed one decoder start, zero discarded
+USB framing bytes, and approximately 30 output fps over the observed run.
+No monitor was connected: HDMI used a 1024×768 fallback; the prior hotplug test
+already verified upgrading to 1080p. This reboot is an API/decoder verification,
+not an additional visual HDMI test.
+
+The boot journal confirms PID 1 owns the Broadcom hardware watchdog with a
+10-second timeout. A separate Cosmostreamer `splashscreen.service` was discovered
+starting its omxiv framebuffer viewer outside rc.local; it was stopped and
+disabled, and the migration script now handles that service. Video continued.
+
+The pre-existing rpi-eeprom-update service fails its package checksum check on
+this image. This is separate from the receiver; no EEPROM flashing or repair
+was attempted. Receiver, hostapd and DHCP startup succeeded. O3 compatibility
+remains pending a hardware test.
+
+### Owner confirmation: O3 and O4
+
+After the earlier O3-pending notes above, the owner tested both O3 Air Unit and
+O4 Air Unit Pro and reported both working flawlessly. This establishes support
+on the original Pi/Buster installation; it is not a physical Trixie validation.
+
+### Version 0.2 validation, September 17
+
+The Rust renderer now belongs to the long-lived server. The USB worker sends
+sequence-numbered compressed chunks over a bounded Unix datagram path. A
+persistent primary DRM framebuffer displays the selected fallback while
+GStreamer uses an overlay for camera video. Uploaded PNG/JPEG/WebP images are
+converted to bounded-size PNGs. Settings/images persist on disk; the 1,800-sample
+history and JPEG preview remain in RAM.
+
+O4 Pro hardware observations on the supplied Buster Pi:
+
+- Input: 1920×1080, nominal 30 fps; measured approximately 29–30 fps.
+- Output: approximately 30 rendered fps; HDMI upgraded from headless 1024×768
+  to 1920×1080 at 60 Hz when the monitor was connected.
+- Browser JPEG preview: 640×360, HTTP 200, clean image inspected locally.
+- Owner visually confirmed live HDMI, “NO SIGNAL” after unplugging goggles,
+  and live recovery after reconnecting. The monitor was then disconnected.
+- Stream history recorded the loss and recovery. Temperature was around 45 °C.
+- An initial regression came from kmssink/libdrm searching unrelated DRM drivers
+  longer than the new input timeout. Setting `driver-name=vc4` eliminated that
+  probe delay; observed steady playback then used one decoder until hotplug or
+  USB reconnection.
+- The release installer replaced the persistent systemd application successfully.
+  Legacy root is now writable so settings and Wi-Fi changes survive reboot.
+
+Automated checks: 15 Rust tests, Clippy with warnings denied, TypeScript/Rsbuild,
+and an HTTP integration test covering upload/conversion/selection, controls,
+settings, captured H.264 decoding, preview and expiry after signal loss.
+
+The custom SD image uses the official September 15, 2026 Raspberry Pi OS Lite
+ARM64 Trixie image, SHA-256
+`cdf4f3bfac35ae947b46e4e767f935453810549779ac3290e05a6754aee627e5`.
+Its build validates systemd services, user/sudo permissions, NetworkManager's
+AP keyfile, required GStreamer plugins and the ARM64 HTTP server under QEMU.
+Filesystem extraction through debugfs drops special mode bits; the build now
+restores those bits from the original inode metadata before packaging.
+
+A physical boot of the new image and V4L2 hardware decoding on its 6.18 kernel
+remain untested. The new v0.2 renderer has been tested with O4; the owner's O3
+confirmation predates this renderer update. Manual HDMI mode selection and the
+new image's NetworkManager AP still need physical checks on that image.
+
+The legacy hostapd Wi-Fi API was also exercised with the current SSID and
+password. It applied successfully, returned no error, and the AP remained
+reachable. The decoder-start count stayed unchanged across the network restart.

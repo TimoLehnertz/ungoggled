@@ -272,7 +272,7 @@ pub(crate) fn start_bulk(mut input: File, output: File, args: WorkerArgs) {
             let mut buffer = [0u8; 16384];
             let mut capture = args.capture.as_ref().map(File::create).transpose()?;
             let mut captured = 0u64;
-            let video = video::start(&args);
+            let video = video::Output::connect(&args.video_socket);
             let mut controls = 0u64;
             let mut last_log = Instant::now();
             loop {

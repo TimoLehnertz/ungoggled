@@ -1,16 +1,21 @@
-#!/bin/sh
-# Run on the Pi from an unpacked project with a matching release binary.
-set -eu
-[ "$(id -u)" -eq 0 ] || { echo 'Run as root.' >&2; exit 1; }
-binary=${1:?Usage: sudo scripts/install-pi.sh /path/to/dji-hdmi}
-test -f web/dist/index.html
-test -x "$binary"
+#!/bin/bash
+# Source checkout installation, using a release binary already built for this Pi.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+binary=${1:?Usage: sudo scripts/install-pi.sh /path/to/pi-binary}
+[[ $(id -u) == 0 ]] || { echo 'Run with sudo.' >&2;exit 1; }
+test -s web/dist/index.html
 "$binary" --version
-install -Dm755 "$binary" /usr/local/bin/dji-hdmi
-install -Dm755 scripts/prepare-pi.sh /usr/local/lib/dji-hdmi/prepare-pi.sh
-mkdir -p /usr/local/share/dji-hdmi/web
-cp -R web/dist/. /usr/local/share/dji-hdmi/web/
-install -Dm644 deploy/dji-hdmi.service /etc/systemd/system/dji-hdmi.service
-systemctl daemon-reload
-systemctl enable --now dji-hdmi.service
-
+bundle=$(mktemp -d)
+trap 'rm -rf -- "$bundle"' EXIT
+mkdir -p "$bundle/bin" "$bundle/web"
+install -m755 "$binary" "$bundle/bin/dji-hdmi"
+cp -a web/dist/. "$bundle/web/"
+install -m755 scripts/install-release.sh "$bundle/install.sh"
+install -m755 scripts/prepare-pi.sh "$bundle/prepare-pi.sh"
+cp deploy/dji-hdmi.service "$bundle/"
+version=$("$binary" --version | awk '{print $2}')
+digest=$(tar -cf - "$binary" web/dist scripts/install-release.sh deploy/dji-hdmi.service | sha256sum | cut -c1-12)
+printf '%s-%s\n' "$version" "$digest" > "$bundle/VERSION"
+uname -m > "$bundle/ARCH"
+(cd "$bundle" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS && ./install.sh)
