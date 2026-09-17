@@ -1,4 +1,4 @@
-# DJI HDMI
+# ungoggled
 
 Turn a Raspberry Pi 4 into an HDMI receiver for **DJI Goggles 3**, with a local
 web interface for setup and monitoring.
@@ -39,21 +39,21 @@ The receiver cannot remove overlays already embedded in the incoming image.
 
 The image is based on **Raspberry Pi OS Lite 64-bit, Debian 13 Trixie**.
 
-1. Download `dji-hdmi-0.2.0-pi4-arm64.img.xz` from the release files.
+1. Download `ungoggled-0.2.0-pi4-arm64.img.xz` from the release files.
 2. In Raspberry Pi Imager, select **Use custom** and choose the `.img.xz` file.
    Skip OS customization: the image already contains its network and login setup.
 3. Write and verify the card, insert it into the Pi, and power on.
-4. Join **DJI-HDMI** using the password **djistreamer**.
+4. Join **ungoggled** using the password **ungoggled**.
 5. Open **http://192.168.50.1:8090**.
 
 ### Default credentials
 
 | Setting | Default |
 | --- | --- |
-| Wi-Fi SSID | `DJI-HDMI` |
-| Wi-Fi password | `djistreamer` |
+| Wi-Fi SSID | `ungoggled` |
+| Wi-Fi password | `ungoggled` |
 | SSH username | `root` |
-| SSH password | `root` |
+| SSH password | `ungoggled` |
 | Web interface | `http://192.168.50.1:8090` |
 
 Connect with `ssh root@192.168.50.1`. Change Wi-Fi credentials in the web
@@ -102,17 +102,17 @@ Use the release bundle for your Pi OS architecture:
 
 | Pi OS | Bundle |
 | --- | --- |
-| 64-bit | `dji-hdmi-0.2.0-aarch64.tar.gz` |
-| 32-bit legacy installation | `dji-hdmi-0.2.0-armv7l.tar.gz` |
+| 64-bit | `ungoggled-0.2.0-aarch64.tar.gz` |
+| 32-bit legacy installation | `ungoggled-0.2.0-armv7l.tar.gz` |
 
 Copy it to the Pi, unpack it, and run its installer:
 
 ```sh
-scp dji-hdmi-0.2.0-aarch64.tar.gz root@192.168.50.1:/tmp/
+scp ungoggled-0.2.0-aarch64.tar.gz root@192.168.50.1:/tmp/
 ssh root@192.168.50.1
 cd /tmp
-tar -xzf dji-hdmi-0.2.0-aarch64.tar.gz
-cd dji-hdmi-0.2.0-aarch64
+tar -xzf ungoggled-0.2.0-aarch64.tar.gz
+cd ungoggled-0.2.0-aarch64
 ./install.sh
 ```
 
@@ -142,7 +142,7 @@ dtoverlay=dwc2,dr_mode=peripheral
 Then install a release bundle as above, using your own Pi login and
 `sudo ./install.sh` when logged in as a non-root user. Use the Pi's existing network address to
 open port 8090. The application installer preserves your network configuration;
-the preconfigured SD image additionally supplies the DJI-HDMI access point.
+the preconfigured SD image additionally supplies the ungoggled access point.
 The receiver needs exclusive use of the USB device controller and HDMI display.
 
 ## Build from source
@@ -162,7 +162,7 @@ cargo build --release
 On the Pi, install the resulting binary and web assets with:
 
 ```sh
-sudo scripts/install-pi.sh target/release/dji-hdmi
+sudo scripts/install-pi.sh target/release/ungoggled
 ```
 
 To cross-compile release bundles on Linux:
@@ -184,10 +184,14 @@ and JPEG plugins, then run:
 
 ```sh
 cargo build
-python3 tests/smoke.py target/debug/dji-hdmi /path/to/captured-video.h264
+python3 tests/smoke.py target/debug/ungoggled /path/to/captured-video.h264
 ```
 
 ## Service and files
+
+The service and persistent paths retain their original `dji-hdmi` names for
+compatibility with existing installations. The application executable is
+`ungoggled`.
 
 | Location | Purpose |
 | --- | --- |

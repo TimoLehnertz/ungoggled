@@ -170,7 +170,7 @@ async fn main() -> Result<()> {
                 }
             });
             let router = api::router(app.clone(), web_dir);
-            eprintln!("DJI HDMI control interface: http://{listen}");
+            eprintln!("ungoggled control interface: http://{listen}");
             let stop_app = app.clone();
             axum::serve(listener, router)
                 .with_graceful_shutdown(async move {

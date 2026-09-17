@@ -1,5 +1,5 @@
 [Unit]
-Description=DJI HDMI device initialization
+Description=ungoggled device initialization
 After=local-fs.target
 Before=NetworkManager.service ssh.service dji-hdmi.service
 

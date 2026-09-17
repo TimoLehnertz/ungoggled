@@ -30,7 +30,7 @@ pub fn descriptors() -> Vec<u8> {
     out
 }
 fn strings() -> Vec<u8> {
-    let s = b"DJI HDMI\0";
+    let s = b"ungoggled\0";
     let mut out = Vec::new();
     for word in [2u32, (18 + s.len()) as u32, 1, 1] {
         out.extend(word.to_le_bytes());
@@ -92,7 +92,7 @@ pub fn run(args: &WorkerArgs) -> Result<()> {
     fs::create_dir_all(config.join("strings/0x409"))?;
     for (key, value) in [
         ("manufacturer", "Android"),
-        ("product", "DJI HDMI"),
+        ("product", "ungoggled"),
         ("serialnumber", "dji-hdmi-ffs-001"),
     ] {
         write_attr(config.join("strings/0x409").join(key), value)?;

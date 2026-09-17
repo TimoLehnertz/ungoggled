@@ -19,14 +19,14 @@ from pathlib import Path
 
 profile = configparser.ConfigParser(interpolation=None)
 profile.read('/tmp/dji-checked.nmconnection')
-assert profile['wifi']['ssid'] == 'DJI-HDMI'
-assert profile['wifi-security']['psk'] == 'djistreamer'
+assert profile['wifi']['ssid'] == 'ungoggled'
+assert profile['wifi-security']['psk'] == 'ungoggled'
 root = next(line.split(':') for line in Path('/etc/shadow').read_text().splitlines()
             if line.startswith('root:'))
 crypt = ctypes.CDLL('libcrypt.so.1').crypt
 crypt.argtypes = (ctypes.c_char_p, ctypes.c_char_p)
 crypt.restype = ctypes.c_char_p
-assert crypt(b'root', root[1].encode()) == root[1].encode(), 'Root password mismatch'
+assert crypt(b'ungoggled', root[1].encode()) == root[1].encode(), 'Root password mismatch'
 PY
 mkdir -p /run/sshd
 ssh-keygen -q -t ed25519 -N '' -f /tmp/dji-check-hostkey
@@ -36,7 +36,7 @@ grep -qx 'passwordauthentication yes' /tmp/dji-check-sshd
 for plugin in h264parse kmssink fpsdisplaysink jpegenc videorate videoscale videoconvert video4linux2; do
     gst-inspect-1.0 "$plugin" >/dev/null
 done
-/opt/dji-hdmi/current/bin/dji-hdmi serve --no-autostart --output none \
+/opt/dji-hdmi/current/bin/ungoggled serve --no-autostart --output none \
     --listen 127.0.0.1:18190 --runtime-dir /tmp/dji-check-run \
     --data-dir /tmp/dji-check-data --web-dir /opt/dji-hdmi/current/web >/tmp/dji-check.log 2>&1 &
 server=$!

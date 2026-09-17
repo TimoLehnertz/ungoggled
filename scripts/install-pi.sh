@@ -9,7 +9,7 @@ test -s web/dist/index.html
 bundle=$(mktemp -d)
 trap 'rm -rf -- "$bundle"' EXIT
 mkdir -p "$bundle/bin" "$bundle/web"
-install -m755 "$binary" "$bundle/bin/dji-hdmi"
+install -m755 "$binary" "$bundle/bin/ungoggled"
 cp -a web/dist/. "$bundle/web/"
 install -m755 scripts/install-release.sh "$bundle/install.sh"
 install -m755 scripts/prepare-pi.sh "$bundle/prepare-pi.sh"

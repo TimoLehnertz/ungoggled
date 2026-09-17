@@ -70,7 +70,7 @@ export default function App() {
   return (
     <main>
       <header>
-        <h1>DJI HDMI</h1>
+        <h1>ungoggled</h1>
         <span
           className={`connection ${connectionError ? "bad" : live ? "good" : ""}`}
         >

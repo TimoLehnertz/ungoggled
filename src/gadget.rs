@@ -172,7 +172,7 @@ pub fn run(args: &WorkerArgs) -> Result<()> {
                         (0x80, 6) if value >> 8 == 3 => {
                             let s = match value as u8 {
                                 1 => Some("Android"),
-                                2 => Some("DJI HDMI"),
+                                2 => Some("ungoggled"),
                                 3 => Some("dji-hdmi-002"),
                                 _ => None,
                             };

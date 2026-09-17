@@ -19,8 +19,8 @@ install -m755 /tmp/dji-firstboot.sh /usr/local/lib/dji-hdmi/firstboot.sh
 install -m644 /tmp/dji-firstboot.service /etc/systemd/system/dji-hdmi-firstboot.service
 printf 'DJI_HDMI_DECODER=v4l2h264dec\n' > /etc/default/dji-hdmi
 printf '%s\n' "$RADIO_COUNTRY" > /etc/dji-hdmi/radio-country
-printf 'dji-hdmi\n' > /etc/hostname
-printf '127.0.0.1 localhost\n127.0.1.1 dji-hdmi\n::1 localhost ip6-localhost ip6-loopback\n' > /etc/hosts
+printf 'ungoggled\n' > /etc/hostname
+printf '127.0.0.1 localhost\n127.0.1.1 ungoggled\n::1 localhost ip6-localhost ip6-loopback\n' > /etc/hosts
 # Reused build trees may still contain the old generated-login account.
 if id dji >/dev/null 2>&1; then userdel --remove dji; fi
 usermod --shell /bin/bash root
@@ -44,7 +44,7 @@ autoconnect-priority=100
 
 [wifi]
 mode=ap
-ssid=DJI-HDMI
+ssid=ungoggled
 band=bg
 channel=6
 powersave=2

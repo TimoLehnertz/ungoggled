@@ -4,7 +4,7 @@ set -euo pipefail
 [[ $(id -u) == 0 ]] || { echo 'Run with sudo.' >&2; exit 1; }
 cd "$(dirname "$(readlink -f "$0")")"
 sha256sum --check --quiet SHA256SUMS
-./bin/dji-hdmi --version
+./bin/ungoggled --version
 arch=$(uname -m)
 expected=$(cat ARCH)
 [[ "$arch" == "$expected" ]] || { echo "Bundle is for $expected; this Pi is $arch." >&2; exit 1; }
@@ -12,9 +12,14 @@ version=$(cat VERSION)
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-[a-f0-9]+$ ]] || exit 1
 release=/opt/dji-hdmi/releases/$version
 mkdir -p /opt/dji-hdmi/releases /var/lib/dji-hdmi /etc/default /usr/local/lib/dji-hdmi
+stage=
+previous_unit=$(mktemp)
+trap 'test -z "${stage:-}" || rm -rf -- "$stage"; rm -f -- "$previous_unit"' EXIT
+if [[ -f /etc/systemd/system/dji-hdmi.service ]]; then
+    cp /etc/systemd/system/dji-hdmi.service "$previous_unit"
+fi
 if [[ ! -d "$release" ]]; then
     stage=$(mktemp -d /opt/dji-hdmi/releases/.install-XXXXXX)
-    trap 'test -z "${stage:-}" || rm -rf -- "$stage"' EXIT
     cp -a bin web VERSION ARCH SHA256SUMS "$stage/"
     chmod -R a+rX "$stage"
     mv "$stage" "$release"
@@ -41,6 +46,11 @@ if [[ $healthy == 0 ]]; then
     if [[ -n "$previous" && -d "$previous" ]]; then
         ln -sfn "$previous" /opt/dji-hdmi/current.next
         mv -Tf /opt/dji-hdmi/current.next /opt/dji-hdmi/current
+        # The previous release may still call its executable dji-hdmi.
+        if [[ -s "$previous_unit" ]]; then
+            cp "$previous_unit" /etc/systemd/system/dji-hdmi.service
+            systemctl daemon-reload
+        fi
         systemctl restart dji-hdmi.service
         echo 'Update failed its HTTP health check; previous application restored.' >&2
     else

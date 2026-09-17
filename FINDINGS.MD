@@ -363,3 +363,23 @@ Image validation checks the NetworkManager password, the root password hash,
 and sshd's effective root/password-login policy. SSH host keys are still
 created separately on each device's first boot. Application-only updates
 continue to preserve the installed device's existing credentials.
+
+### Project rename: ungoggled, September 18
+
+The project, application executable, browser UI, USB product label, image
+hostname and downloadable artifacts are now named `ungoggled`. The source
+checkout directory remains `dji-hdmi`. Existing service names, data directories,
+USB gadget paths, environment variables and HTTP control headers remain stable
+so installed devices retain their configuration and update compatibility.
+The release installer restores the previous service definition during rollback,
+including its old executable name.
+
+Fresh image defaults are Wi-Fi SSID `ungoggled`, Wi-Fi password `ungoggled`,
+and SSH username `root` with password `ungoggled`. These supersede the defaults
+recorded above. Installing an application update preserves existing credentials.
+
+Rename checks: all 15 Rust tests, Clippy, the web build and the captured-video
+HTTP integration test passed. In an isolated ARM64 image, the release installer
+was exercised with mocked service/HTTP commands: a failed renamed-executable
+restart restored the old service and release, and a successful update installed
+`ungoggled` while preserving the existing runtime and Wi-Fi configuration.

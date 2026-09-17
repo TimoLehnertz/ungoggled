@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """HTTP/settings + real decoder/preview smoke test. No Pi or USB required.
-Usage: python3 tests/smoke.py target/debug/dji-hdmi [capture.h264]
+Usage: python3 tests/smoke.py target/debug/ungoggled [capture.h264]
 Requires GStreamer with avdec_h264/jpegenc when a capture is supplied.
 """
 import json, os, pathlib, socket, struct, subprocess, sys, tempfile, threading, time, urllib.request, urllib.error, zlib
@@ -9,7 +9,7 @@ def png():
     def chunk(kind,data): return struct.pack('>I',len(data))+kind+data+struct.pack('>I',zlib.crc32(kind+data))
     return b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',2,1,8,2,0,0,0))+chunk(b'IDAT',zlib.compress(b'\0\xff\0\0\0\xff\0'))+chunk(b'IEND',b'')
 
-with tempfile.TemporaryDirectory(prefix='dji-smoke-') as temp:
+with tempfile.TemporaryDirectory(prefix='ungoggled-smoke-') as temp:
     root=pathlib.Path(temp)
     with socket.socket() as s: s.bind(('127.0.0.1',0));port=s.getsockname()[1]
     url=f'http://127.0.0.1:{port}/api/'

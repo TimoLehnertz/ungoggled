@@ -28,14 +28,14 @@ unshare --user --map-root-user --map-auto --mount python3 scripts/restore-image-
 unshare --user --map-root-user --map-auto --mount python3 scripts/configure-image.py build/image/rootfs
 unshare --user --map-root-user --map-auto --mount --pid --fork --kill-child scripts/image-chroot.sh build/image/rootfs /bin/bash /tmp/dji-provision.sh
 unshare --user --map-root-user --map-auto --mount --pid --fork --kill-child scripts/image-chroot.sh build/image/rootfs /bin/bash /tmp/dji-check-image.sh
-unshare --user --map-root-user --map-auto --mount chroot build/image/rootfs dpkg-query -W > dist/dji-hdmi-image-packages.txt
+unshare --user --map-root-user --map-auto --mount chroot build/image/rootfs dpkg-query -W > dist/ungoggled-image-packages.txt
 # Extract the original FAT boot partition using mtools from the ARM image.
 dd if="$base" of=build/image/rootfs/tmp/dji-boot.fat bs=512 skip=16384 count=1048576 status=none
 unshare --user --map-root-user --map-auto --mount chroot build/image/rootfs /bin/bash -c 'mkdir -p /boot/firmware; mcopy -s -i /tmp/dji-boot.fat "::*" /boot/firmware/'
 unshare --user --map-root-user --map-auto --mount python3 - <<'PY'
 from pathlib import Path
 boot=Path('build/image/rootfs/boot/firmware')
-p=boot/'config.txt';s=p.read_text();s+='\n[all]\n# DJI HDMI USB accessory controller\ndtoverlay=dwc2,dr_mode=peripheral\n';p.write_text(s)
+p=boot/'config.txt';s=p.read_text();s+='\n[all]\n# ungoggled USB accessory controller\ndtoverlay=dwc2,dr_mode=peripheral\n';p.write_text(s)
 p=boot/'cmdline.txt';parts=p.read_text().split();parts=[p for p in parts if not p.startswith(('init=','systemd.run=','systemd.run_success_action=','systemd.unit=','video=HDMI-A-1:'))];parts+=['video=HDMI-A-1:1920x1080@60D'];p.write_text(' '.join(parts)+'\n')
 PY
 unshare --user --map-root-user --map-auto --mount chroot build/image/rootfs /bin/bash -c 'mcopy -o -i /tmp/dji-boot.fat /boot/firmware/config.txt /boot/firmware/cmdline.txt ::/'
@@ -60,7 +60,7 @@ root_image=build/image/final-root.ext4
 truncate -s $((root_sectors*512)) "$root_image"
 unshare --user --map-root-user --map-auto --mount mke2fs -q -t ext4 -F -L rootfs -d build/image/rootfs "$root_image"
 e2fsck -fn "$root_image"
-out=dist/dji-hdmi-0.2.0-pi4-arm64.img
+out=dist/ungoggled-0.2.0-pi4-arm64.img
 truncate -s $(((1064960+root_sectors)*512)) "$out"
 dd if="$base" of="$out" bs=512 count=16384 conv=notrunc status=none
 dd if=build/image/boot.fat of="$out" bs=512 seek=16384 conv=notrunc status=none

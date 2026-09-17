@@ -28,7 +28,7 @@ for file in /etc/rc.local /etc/dhcpcd.conf; do
 done
 release=/opt/dji-hdmi/releases/$("$binary" --version | awk '{print $2}')-$(sha256sum "$binary" | cut -c1-12)
 mkdir -p "$release/bin" "$release/web"
-install -m755 "$binary" "$release/bin/dji-hdmi"
+install -m755 "$binary" "$release/bin/ungoggled"
 cp -R web/dist/. "$release/web/"
 ln -sfn "$release" /opt/dji-hdmi/current
 install -Dm755 scripts/prepare-pi.sh /usr/local/lib/dji-hdmi/prepare-pi.sh

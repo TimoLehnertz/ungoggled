@@ -1,5 +1,5 @@
 [Unit]
-Description=DJI Goggles HDMI receiver
+Description=ungoggled HDMI receiver
 After=network.target
 
 [Service]
@@ -10,7 +10,7 @@ Environment=GST_REGISTRY=/run/dji-hdmi/gstreamer-registry.bin
 Environment=DJI_HDMI_DECODER=v4l2h264dec
 EnvironmentFile=-/etc/default/dji-hdmi
 ExecStartPre=/usr/local/lib/dji-hdmi/prepare-pi.sh
-ExecStart=/opt/dji-hdmi/current/bin/dji-hdmi serve --listen 0.0.0.0:8090 --web-dir /opt/dji-hdmi/current/web --decoder ${DJI_HDMI_DECODER}
+ExecStart=/opt/dji-hdmi/current/bin/ungoggled serve --listen 0.0.0.0:8090 --web-dir /opt/dji-hdmi/current/web --decoder ${DJI_HDMI_DECODER}
 Restart=on-failure
 RestartSec=3
 KillMode=control-group
