@@ -40,11 +40,44 @@ The receiver cannot remove overlays already embedded in the incoming image.
 The image is based on **Raspberry Pi OS Lite 64-bit, Debian 13 Trixie**.
 
 1. Download `ungoggled-0.2.0-pi4-arm64.img.xz` from the release files.
-2. In Raspberry Pi Imager, select **Use custom** and choose the `.img.xz` file.
-   Skip OS customization: the image already contains its network and login setup.
-3. Write and verify the card, insert it into the Pi, and power on.
-4. Join **ungoggled** using the password **ungoggled**.
-5. Open **http://192.168.50.1:8090**.
+2. Write it to the microSD card with one of the [recommended
+   writers](#recommended-writers). Pass the `.img.xz` in directly; these tools
+   decompress while writing, so do not unpack it first.
+3. Skip any OS customization the tool offers: the image already contains its
+   network and login setup.
+4. Verify the card, insert it into the Pi, and power on.
+5. Join **ungoggled** using the password **ungoggled**.
+6. Open **http://192.168.50.1:8090**.
+
+### Recommended writers
+
+The image expands to about 6.5 GiB, so the card must be at least 8 GB. Prefer a
+tool that verifies the write afterwards; silent write failures on worn or
+counterfeit cards are the most common cause of a Pi that never boots.
+
+| Tool | Install | Notes |
+| --- | --- | --- |
+| **Caligula** | Arch: `pacman -S caligula`; Nix: `nixpkgs#caligula`; or a [prebuilt binary](https://github.com/ifd3f/caligula/releases) | Terminal UI. Lists only removable devices, decompresses `.img.xz` inline, and hash-verifies the card afterwards. |
+| **Impression** | Arch: `pacman -S impression`; or [Flathub](https://flathub.org/apps/io.gitlab.adhami3310.Impression) | GTK interface. Writes through udisks2, so only the write is privileged. |
+| **Raspberry Pi Imager** | packaged by most distributions as `rpi-imager` | Select **Use custom** and choose the `.img.xz`. See the Wayland caveat below. |
+
+On Wayland desktops, prefer Caligula or Impression. Raspberry Pi Imager
+re-executes its entire Qt GUI as root over X11, which fails on compositors that
+do not authorize root X11 clients: under Hyprland it exits immediately with
+`Authorization required, but no authorization protocol specified`. Working
+around it needs `xhost +si:localuser:root` before every launch.
+
+Any tool that writes a raw image works too. With `dd`, decompress on the fly and
+write to the whole device, never a partition:
+
+```bash
+xzcat ungoggled-0.2.0-pi4-arm64.img.xz \
+  | sudo dd of=/dev/sdX bs=4M conv=fsync oflag=direct status=progress
+sync
+```
+
+Confirm the target with `lsblk` immediately beforehand; `dd` does not check
+whether it is a removable device and does not verify the result.
 
 ### Default credentials
 
