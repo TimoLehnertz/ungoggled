@@ -39,17 +39,29 @@ The receiver cannot remove overlays already embedded in the incoming image.
 
 The image is based on **Raspberry Pi OS Lite 64-bit, Debian 13 Trixie**.
 
-1. Download `dji-hdmi-0.2.0-pi4-arm64.img.xz` and its matching
-   `dji-hdmi-credentials.txt` from the release files.
+1. Download `dji-hdmi-0.2.0-pi4-arm64.img.xz` from the release files.
 2. In Raspberry Pi Imager, select **Use custom** and choose the `.img.xz` file.
    Skip OS customization: the image already contains its network and login setup.
 3. Write and verify the card, insert it into the Pi, and power on.
-4. Join **DJI-HDMI** using the Wi-Fi password in the credentials file.
+4. Join **DJI-HDMI** using the password **djistreamer**.
 5. Open **http://192.168.50.1:8090**.
 
-The root partition expands on first boot. SSH is available as
-`dji@192.168.50.1`; the credentials file contains its separate login/sudo password.
-Each device generates its own SSH host keys. The image's Wi-Fi radio country is
+### Default credentials
+
+| Setting | Default |
+| --- | --- |
+| Wi-Fi SSID | `DJI-HDMI` |
+| Wi-Fi password | `djistreamer` |
+| SSH username | `root` |
+| SSH password | `root` |
+| Web interface | `http://192.168.50.1:8090` |
+
+Connect with `ssh root@192.168.50.1`. Change Wi-Fi credentials in the web
+interface and the root password with `passwd` if desired. Application updates
+preserve existing passwords; these defaults apply to freshly flashed images.
+
+The root partition expands on first boot, and each device generates its own
+SSH host keys. The image's Wi-Fi radio country is
 **DE**; configure the correct country if using it elsewhere.
 
 > The new Trixie image requires a physical boot/decoder check on a Pi. The earlier
@@ -96,12 +108,12 @@ Use the release bundle for your Pi OS architecture:
 Copy it to the Pi, unpack it, and run its installer:
 
 ```sh
-scp dji-hdmi-0.2.0-aarch64.tar.gz dji@192.168.50.1:/tmp/
-ssh dji@192.168.50.1
+scp dji-hdmi-0.2.0-aarch64.tar.gz root@192.168.50.1:/tmp/
+ssh root@192.168.50.1
 cd /tmp
 tar -xzf dji-hdmi-0.2.0-aarch64.tar.gz
 cd dji-hdmi-0.2.0-aarch64
-sudo ./install.sh
+./install.sh
 ```
 
 The installer verifies checksums, preserves settings/images/Wi-Fi, switches to
@@ -127,7 +139,8 @@ Add this to `/boot/firmware/config.txt` and reboot:
 dtoverlay=dwc2,dr_mode=peripheral
 ```
 
-Then install a release bundle as above. Use the Pi's existing network address to
+Then install a release bundle as above, using your own Pi login and
+`sudo ./install.sh` when logged in as a non-root user. Use the Pi's existing network address to
 open port 8090. The application installer preserves your network configuration;
 the preconfigured SD image additionally supplies the DJI-HDMI access point.
 The receiver needs exclusive use of the USB device controller and HDMI display.
@@ -164,7 +177,7 @@ official base image and installs packages inside an isolated ARM64 filesystem.
 The Linux build host needs QEMU's registered `qemu-aarch64` binfmt handler,
 subordinate UID/GID mappings, `unshare`, `newuidmap`, `newgidmap`, e2fsprogs,
 curl, xz, Rust and Node.js. It does not write to a physical SD card. Outputs
-and credentials are written to `dist/`; intermediate files stay in `build/`.
+are written to `dist/`; intermediate files stay in `build/`.
 
 For a hardware-free integration check, install GStreamer with its software H.264
 and JPEG plugins, then run:

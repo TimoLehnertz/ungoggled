@@ -5,12 +5,34 @@ systemd-analyze verify /etc/systemd/system/dji-hdmi.service /etc/systemd/system/
 for unit in dji-hdmi dji-hdmi-firstboot NetworkManager ssh; do systemctl is-enabled "$unit"; done
 [[ -u /usr/bin/sudo && $(stat -c %a /tmp) == 1777 ]]
 [[ $(stat -c '%u:%g' /usr/bin/sudo) == 0:0 ]]
-id dji >/dev/null
+[[ $(id -u root) == 0 ]]
+! id dji >/dev/null 2>&1
 [[ ! -s /etc/machine-id ]]
 ! compgen -G '/etc/ssh/ssh_host_*' >/dev/null
 profile=/etc/NetworkManager/system-connections/dji-hdmi.nmconnection
 [[ $(stat -c %a "$profile") == 600 ]]
 nmcli --offline connection modify connection.id dji-hdmi < "$profile" > /tmp/dji-checked.nmconnection
+python3 - <<'PY'
+import configparser
+import ctypes
+from pathlib import Path
+
+profile = configparser.ConfigParser(interpolation=None)
+profile.read('/tmp/dji-checked.nmconnection')
+assert profile['wifi']['ssid'] == 'DJI-HDMI'
+assert profile['wifi-security']['psk'] == 'djistreamer'
+root = next(line.split(':') for line in Path('/etc/shadow').read_text().splitlines()
+            if line.startswith('root:'))
+crypt = ctypes.CDLL('libcrypt.so.1').crypt
+crypt.argtypes = (ctypes.c_char_p, ctypes.c_char_p)
+crypt.restype = ctypes.c_char_p
+assert crypt(b'root', root[1].encode()) == root[1].encode(), 'Root password mismatch'
+PY
+mkdir -p /run/sshd
+ssh-keygen -q -t ed25519 -N '' -f /tmp/dji-check-hostkey
+sshd -T -h /tmp/dji-check-hostkey -C user=root,host=localhost,addr=127.0.0.1 > /tmp/dji-check-sshd
+grep -qx 'permitrootlogin yes' /tmp/dji-check-sshd
+grep -qx 'passwordauthentication yes' /tmp/dji-check-sshd
 for plugin in h264parse kmssink fpsdisplaysink jpegenc videorate videoscale videoconvert video4linux2; do
     gst-inspect-1.0 "$plugin" >/dev/null
 done
@@ -31,4 +53,4 @@ from pathlib import Path
 assert json.loads(Path('/tmp/dji-check-settings.json').read_text())['fallback_image'] == 'no-signal.png'
 assert Path('/tmp/dji-check.png').read_bytes().startswith(b'\x89PNG\r\n\x1a\n')
 PY
-echo 'PASS: image services, permissions, Wi-Fi profile, media plugins and ARM64 HTTP server'
+echo 'PASS: image services, permissions, default Wi-Fi/root credentials, SSH login policy, media plugins and ARM64 HTTP server'

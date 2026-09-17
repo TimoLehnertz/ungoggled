@@ -21,11 +21,13 @@ printf 'DJI_HDMI_DECODER=v4l2h264dec\n' > /etc/default/dji-hdmi
 printf '%s\n' "$RADIO_COUNTRY" > /etc/dji-hdmi/radio-country
 printf 'dji-hdmi\n' > /etc/hostname
 printf '127.0.0.1 localhost\n127.0.1.1 dji-hdmi\n::1 localhost ip6-localhost ip6-loopback\n' > /etc/hosts
-if ! id dji >/dev/null 2>&1; then useradd -m -s /bin/bash -G sudo,video,render,netdev dji; fi
-printf 'dji:%s\n' "$SSH_PASSWORD" | chpasswd
-rm -f /etc/ssh/sshd_config.d/rename_user.conf
+# Reused build trees may still contain the old generated-login account.
+if id dji >/dev/null 2>&1; then userdel --remove dji; fi
+usermod --shell /bin/bash root
+printf 'root:%s\n' "$SSH_PASSWORD" | chpasswd
+rm -f /etc/ssh/sshd_config.d/rename_user.conf /etc/ssh/sshd_config.d/90-dji-hdmi.conf
 mkdir -p /etc/ssh/sshd_config.d
-printf 'PasswordAuthentication yes\nPermitRootLogin no\n' > /etc/ssh/sshd_config.d/90-dji-hdmi.conf
+printf 'PasswordAuthentication yes\nPermitRootLogin yes\n' > /etc/ssh/sshd_config.d/00-dji-hdmi.conf
 # Existing stock-image keys must never be distributed to multiple devices.
 rm -f /etc/ssh/ssh_host_* /etc/machine-id /var/lib/dbus/machine-id
 : > /etc/machine-id

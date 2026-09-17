@@ -353,3 +353,13 @@ new image's NetworkManager AP still need physical checks on that image.
 The legacy hostapd Wi-Fi API was also exercised with the current SSID and
 password. It applied successfully, returned no error, and the AP remained
 reachable. The decoder-start count stayed unchanged across the network restart.
+
+### Image login defaults, September 18
+
+At the owner's request, newly built images now use the documented defaults:
+Wi-Fi SSID `DJI-HDMI`, Wi-Fi password `djistreamer`, and SSH `root` / `root`.
+The separate credential file and generated `dji` account have been removed.
+Image validation checks the NetworkManager password, the root password hash,
+and sshd's effective root/password-login policy. SSH host keys are still
+created separately on each device's first boot. Application-only updates
+continue to preserve the installed device's existing credentials.

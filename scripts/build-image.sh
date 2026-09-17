@@ -71,4 +71,4 @@ with open(sys.argv[1],'r+b') as f:f.seek(462+12);f.write(struct.pack('<I',int(sy
 PY
 xz -T2 -3 -f "$out"
 sha256sum "$out.xz" > "$out.xz.sha256"
-printf 'Image: %s.xz\nCredentials: dist/dji-hdmi-credentials.txt\n' "$out"
+printf 'Image: %s.xz\nDefault Wi-Fi and root login: see README.md\n' "$out"
