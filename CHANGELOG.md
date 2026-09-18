@@ -13,6 +13,8 @@
 - Add semantic version management and automated release builds containing an SD-card image and an ARM64 update file.
 - Halve the SD-card image: the root filesystem is sized to its contents plus working headroom, and documentation, translations and cached package lists the appliance never reads are left out. The partition still expands to the whole card on first boot.
 - Ship only the current application release in the SD-card image, instead of also carrying the release directories of earlier builds.
+- Show goggles, video and HDMI state in a header that stays visible while scrolling. Goggles state comes from the USB controller, so a cable that is attached but has not finished the accessory handshake is no longer reported as disconnected.
+- Report an attached HDMI display only when it answers with an EDID; the image forces an HDMI mode, which leaves the connector reporting "connected" with nothing plugged in.
 - Recover on its own when the goggles keep the port configured but the gadget stops receiving events after an update restart, instead of needing a manual service restart.
 
 ## 0.2.0

@@ -18,6 +18,21 @@ const phases: Record<string, string> = {
   aoa_negotiation: "Connecting goggles",
   usb_connected: "Goggles connected",
 };
+// Phases the gadget only reaches once the accessory handshake has succeeded.
+const usbPhases = [
+  "usb_connected",
+  "accessory",
+  "aoa_negotiation",
+  "waiting_video",
+  "streaming",
+];
+// The goggles can be plugged in and powering the port while the handshake is
+// still stuck, so attachment comes from the controller, not from the phase.
+function attached(status: Status): boolean {
+  return status.usb_state
+    ? status.usb_state !== "not attached"
+    : usbPhases.includes(status.phase);
+}
 
 export default function App() {
   const { value: status, error: connectionError } = usePolling<Status>(
@@ -72,23 +87,73 @@ export default function App() {
     !connectionError;
   const selected = images.find((i) => i.id === settings?.fallback_image);
   const modes = Array.from(new Set(status?.hdmi_modes ?? []));
+  // Without a reachable receiver the three states are unknown, not "No".
+  const known = !!status && !connectionError;
+  const gogglesLinked = known && attached(status);
+  const handshakeDone = known && usbPhases.includes(status.phase);
   return (
     <main>
       <header>
-        <h1>ungoggled</h1>
-        <span
-          className={`connection ${connectionError ? "bad" : live ? "good" : ""}`}
-        >
-          <i />
-          {connectionError
-            ? "Disconnected"
-            : status
-              ? (phases[status.phase] ?? status.phase)
-              : "Connecting"}
-        </span>
-        <span className="version">
-          {status?.version && `v${status.version}`}
-        </span>
+        <div className="header-top">
+          <h1>ungoggled</h1>
+          <span
+            className={`connection ${connectionError ? "bad" : live ? "good" : ""}`}
+          >
+            <i />
+            {connectionError
+              ? "Disconnected"
+              : !status
+                ? "Connecting"
+                : status.phase === "waiting_usb" && gogglesLinked
+                  ? "Goggles attached · handshake pending"
+                  : (phases[status.phase] ?? status.phase)}
+          </span>
+          <span className="version">
+            {status?.version && `v${status.version}`}
+          </span>
+        </div>
+        <div className="states" aria-label="Receiver state">
+          <State
+            label="Goggles"
+            on={gogglesLinked}
+            known={known}
+            detail={
+              known
+                ? gogglesLinked
+                  ? `USB ${status.usb_state ?? "attached"} · ${
+                      handshakeDone
+                        ? (phases[status.phase] ?? status.phase)
+                        : "accessory handshake not started"
+                    }`
+                  : "Nothing powering the accessory port"
+                : "Receiver unreachable"
+            }
+          />
+          <State
+            label="Video"
+            on={!!live}
+            known={known}
+            detail={
+              known
+                ? live
+                  ? `${number(status.input_fps)} fps · ${number(status.bitrate_mbps, 2)} Mbps from the goggles`
+                  : "No video arriving from the goggles"
+                : "Receiver unreachable"
+            }
+          />
+          <State
+            label="HDMI"
+            on={known && !!status.hdmi_connected}
+            known={known}
+            detail={
+              known
+                ? status.hdmi_connected
+                  ? `Display attached · ${size(status.hdmi_width, status.hdmi_height)} at ${number(status.hdmi_hz, 0)} Hz`
+                  : "No display detected on HDMI0"
+                : "Receiver unreachable"
+            }
+          />
+        </div>
       </header>
       {(error || (connectionError && !updateBusy)) && (
         <div className="alert" role="alert">
@@ -377,6 +442,28 @@ export default function App() {
         Recording off.
       </footer>
     </main>
+  );
+}
+function State({
+  label,
+  on,
+  known,
+  detail,
+}: {
+  label: string;
+  on: boolean;
+  known: boolean;
+  detail: string;
+}) {
+  return (
+    <span
+      className={`state ${!known ? "unknown" : on ? "yes" : "no"}`}
+      title={detail}
+    >
+      <i />
+      {label}
+      <b>{!known ? "—" : on ? "Yes" : "No"}</b>
+    </span>
   );
 }
 function Metric({

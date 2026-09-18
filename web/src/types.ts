@@ -3,6 +3,8 @@ export type Status = {
   phase: string;
   enabled: boolean;
   hdmi: string;
+  hdmi_connected?: boolean;
+  usb_state?: string | null;
   bitrate_mbps: number;
   input_width?: number;
   input_height?: number;

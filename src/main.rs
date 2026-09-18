@@ -269,6 +269,12 @@ impl App {
         s["uptime_seconds"] = json!(self.since.elapsed().as_secs());
         s["temperature_c"] = json!(history::temperature());
         s["version"] = json!(env!("CARGO_PKG_VERSION"));
+        s["hdmi_connected"] = json!(hdmi_connectors().any(|c| monitor_detected(&c)));
+        s["usb_state"] = json!(
+            functionfs::first_controller()
+                .as_deref()
+                .and_then(functionfs::udc_state)
+        );
         s["build_id"] = json!(update::running_build());
         s
     }
@@ -420,6 +426,28 @@ fn supervise(app: App, args: WorkerArgs) -> thread::JoinHandle<()> {
     })
 }
 
+fn hdmi_connectors() -> impl Iterator<Item = std::path::PathBuf> {
+    std::fs::read_dir("/sys/class/drm")
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().contains("HDMI"))
+        .map(|e| e.path())
+}
+
+// The image forces an HDMI mode, so the connector reads "connected" with nothing
+// plugged in. A display that answers with an EDID is the one actually attached.
+fn monitor_detected(connector: &std::path::Path) -> bool {
+    std::fs::read_to_string(connector.join("status"))
+        .unwrap_or_default()
+        .trim()
+        == "connected"
+        && std::fs::read(connector.join("edid"))
+            .unwrap_or_default()
+            .len()
+            >= 128
+}
+
 fn doctor() -> Value {
     let controllers: Vec<_> = std::fs::read_dir("/sys/class/udc")
         .into_iter()
@@ -427,19 +455,15 @@ fn doctor() -> Value {
         .flatten()
         .map(|d| d.file_name().to_string_lossy().into_owned())
         .collect();
-    let connectors: Vec<_> = std::fs::read_dir("/sys/class/drm")
-        .into_iter().flatten().flatten()
-        .filter(|e|e.file_name().to_string_lossy().contains("HDMI"))
-        .map(|e| {
-            let status=std::fs::read_to_string(e.path().join("status")).unwrap_or_default();
-            let edid_bytes=std::fs::read(e.path().join("edid")).unwrap_or_default().len();
+    let connectors: Vec<_> = hdmi_connectors()
+        .map(|c| {
             json!({
-                "name":e.file_name().to_string_lossy(),
-                "status":status.trim(),
-                "edid_bytes":edid_bytes,
-                "monitor_detected":status.trim()=="connected" && edid_bytes>=128,
-                "modes":std::fs::read_to_string(e.path().join("modes")).unwrap_or_default().lines().collect::<Vec<_>>(),
-                "id":std::fs::read_to_string(e.path().join("connector_id")).unwrap_or_default().trim()
+                "name":c.file_name().unwrap_or_default().to_string_lossy(),
+                "status":std::fs::read_to_string(c.join("status")).unwrap_or_default().trim(),
+                "edid_bytes":std::fs::read(c.join("edid")).unwrap_or_default().len(),
+                "monitor_detected":monitor_detected(&c),
+                "modes":std::fs::read_to_string(c.join("modes")).unwrap_or_default().lines().collect::<Vec<_>>(),
+                "id":std::fs::read_to_string(c.join("connector_id")).unwrap_or_default().trim()
             })
         }).collect();
     json!({"controllers":controllers,"connectors":connectors,"gadgetfs_mounted":std::fs::read_to_string("/proc/mounts").unwrap_or_default().contains(" gadgetfs "),"functionfs_mounted":std::fs::read_to_string("/proc/mounts").unwrap_or_default().contains(" functionfs "),"architecture":std::env::consts::ARCH})
