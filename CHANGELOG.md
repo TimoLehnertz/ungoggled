@@ -13,6 +13,7 @@
 - Add semantic version management and automated release builds containing an SD-card image and an ARM64 update file.
 - Halve the SD-card image: the root filesystem is sized to its contents plus working headroom, and documentation, translations and cached package lists the appliance never reads are left out. The partition still expands to the whole card on first boot.
 - Ship only the current application release in the SD-card image, instead of also carrying the release directories of earlier builds.
+- Recover on its own when the goggles keep the port configured but the gadget stops receiving events after an update restart, instead of needing a manual service restart.
 
 ## 0.2.0
 

@@ -6,13 +6,34 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
     os::{fd::AsRawFd, unix::fs::symlink},
-    path::Path,
+    path::{Path, PathBuf},
     process::Command,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     thread,
     time::Duration,
 };
 const CONFIG: &str = "/sys/kernel/config/usb_gadget/dji_hdmi";
 const MOUNT: &str = "/dev/dji-hdmi";
+// How long the controller may report a configured host without the function
+// producing a single event before the binding is cycled, and how often.
+const SILENT_HOST: Duration = Duration::from_secs(10);
+const SILENT_HOST_RECOVERIES: u32 = 3;
+
+pub fn first_controller() -> Option<String> {
+    fs::read_dir("/sys/class/udc")
+        .ok()?
+        .flatten()
+        .next()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+}
+pub fn udc_state(controller: &str) -> Option<String> {
+    fs::read_to_string(format!("/sys/class/udc/{controller}/state"))
+        .ok()
+        .map(|s| s.trim().to_owned())
+}
 
 fn endpoint(addr: u8, packet: u16) -> Vec<u8> {
     vec![7, 5, addr, 2, packet as u8, (packet >> 8) as u8, 0]
@@ -49,6 +70,32 @@ impl Drop for Binding {
     }
 }
 
+// An update stops the service, swaps the release and starts it again seconds
+// later. The goggles can come back with the port still configured while never
+// re-running the accessory handshake, leaving the gadget bound and silent. Cycle
+// the binding so the host re-enumerates, which is what a manual restart does.
+// Silence with no host attached is normal and never triggers this.
+fn recover_silent_host(config: PathBuf, controller: String, events: Arc<AtomicU64>) {
+    thread::spawn(move || {
+        for _ in 0..SILENT_HOST_RECOVERIES {
+            loop {
+                let seen = events.load(Ordering::Relaxed);
+                thread::sleep(SILENT_HOST);
+                if events.load(Ordering::Relaxed) != seen {
+                    return; // The function is being driven; nothing to repair.
+                }
+                if udc_state(&controller).as_deref() == Some("configured") {
+                    break;
+                }
+            }
+            eprintln!("Host configured but FunctionFS silent; re-enumerating gadget");
+            let _ = fs::write(config.join("UDC"), "\n");
+            thread::sleep(Duration::from_millis(500));
+            let _ = fs::write(config.join("UDC"), controller.as_bytes());
+        }
+    });
+}
+
 pub fn run(args: &WorkerArgs) -> Result<()> {
     let config = Path::new(CONFIG);
     if !Path::new("/sys/kernel/config/usb_gadget").exists() {
@@ -57,16 +104,11 @@ pub fn run(args: &WorkerArgs) -> Result<()> {
     fs::create_dir_all(config)?;
     let _ = fs::write(config.join("UDC"), "\n");
     let binding = Binding;
-    let controller = if let Some(c) = &args.controller {
-        c.clone()
-    } else {
-        fs::read_dir("/sys/class/udc")?
-            .next()
-            .context("No USB device controller")??
-            .file_name()
-            .to_string_lossy()
-            .into_owned()
-    };
+    let controller = args
+        .controller
+        .clone()
+        .or_else(first_controller)
+        .context("No USB device controller")?;
     for (key, value) in [
         ("idVendor", "0x18d1"),
         (
@@ -139,12 +181,15 @@ pub fn run(args: &WorkerArgs) -> Result<()> {
         "{}",
         json!({"phase":"waiting_usb","message":"FunctionFS ready for goggles"})
     );
+    let events = Arc::new(AtomicU64::new(0));
+    recover_silent_host(config.to_path_buf(), controller.clone(), events.clone());
     let mut accessory = args.cold_accessory;
     let mut transitioning = false;
     let mut started = false;
     loop {
         let mut e = [0u8; 12];
         ep0.read_exact(&mut e).context("FunctionFS event")?;
+        events.fetch_add(1, Ordering::Relaxed);
         let kind = e[8];
         match kind {
             0 | 1 => {} // bind/unbind occur during AOA re-enumeration

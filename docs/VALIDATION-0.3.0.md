@@ -116,3 +116,23 @@ is the one part of first boot still unconfirmed on hardware.
 Booting with the goggles already connected works: after a cold power cycle the
 receiver reached `waiting_video` with the accessory handshake complete and
 control traffic flowing, without a replug.
+
+## Gadget goes silent after an update restart
+
+After an update install the receiver stayed in `waiting_usb` while
+`/sys/class/udc/fe980000.usb/state` read `configured`: the goggles had the port
+enumerated, but the new worker never received a FunctionFS event. It stayed that
+way until `systemctl restart dji-hdmi`, which recovered it within seconds, with
+the controller passing through `not attached` and the accessory handshake
+re-running normally.
+
+The cause is not established. The updater stops the service, swaps the release
+and starts it again seconds later, where a manual restart closes that gap almost
+immediately; that difference is the leading suspect but is unproven. An earlier
+theory, that the gadget rebind never drops the pull-up, was disproved by
+observing the controller state across a restart.
+
+`src/functionfs.rs` now repairs the observed condition rather than the presumed
+cause: if the controller reports a configured host while the function produces no
+event for 10 seconds, the UDC binding is cycled so the host re-enumerates, up to
+three times. Silence with nothing attached is normal and never triggers it.
