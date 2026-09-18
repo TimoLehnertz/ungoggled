@@ -6,6 +6,9 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav v4l-utils openssh-server network-manager dnsmasq-base curl ca-certificates sudo iw rfkill cloud-guest-utils mtools
+# A reused build tree keeps the release directories of earlier builds, which
+# would ship as dead weight; only this build's release belongs in the image.
+rm -rf /opt/dji-hdmi/releases
 mkdir -p /etc/dji-hdmi /etc/default /var/lib/dji-hdmi /usr/local/lib/dji-hdmi /opt/dji-hdmi/releases
 bundle=/tmp/dji-release
 version=$(cat "$bundle/VERSION")
@@ -85,4 +88,14 @@ printf '[Manager]\nRuntimeWatchdogSec=10s\n' > /etc/systemd/system.conf.d/dji-hd
 mkdir -p /etc/systemd/journald.conf.d
 printf '[Journal]\nStorage=volatile\nRuntimeMaxUse=32M\n' > /etc/systemd/journald.conf.d/dji-hdmi.conf
 apt-get clean
+# Drop content the headless appliance never reads so the distributed image
+# stays small enough to flash and verify quickly. Licences stay; package
+# lists come back from apt-get update, so only cached copies are removed.
+rm -rf /var/lib/apt/lists/*
+mkdir -p /var/lib/apt/lists/partial
+find /usr/share/doc -type f ! -name copyright -delete
+find /usr/share/man /usr/share/info -type f -delete
+find /usr/share/doc /usr/share/man /usr/share/info -xtype l -delete
+find /usr/share/locale -mindepth 1 -maxdepth 1 -type d ! -name 'en*' -exec rm -rf {} +
+find /var/log -type f -delete
 rm -f /tmp/dji-image.env /usr/sbin/policy-rc.d

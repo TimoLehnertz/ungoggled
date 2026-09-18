@@ -5,6 +5,9 @@ systemd-analyze verify /etc/systemd/system/dji-hdmi.service /etc/systemd/system/
 test -x /usr/local/lib/dji-hdmi/update-helper
 for unit in ungoggled-update-recovery dji-hdmi dji-hdmi-firstboot NetworkManager ssh; do systemctl is-enabled "$unit"; done
 [[ -u /usr/bin/sudo && $(stat -c %a /tmp) == 1777 ]]
+# Trimming documentation and translations keeps licences and the dpkg database.
+[[ -s /usr/share/doc/base-files/copyright ]]
+[[ $(dpkg-query -W -f '${Status}' gstreamer1.0-tools) == 'install ok installed' ]]
 [[ $(stat -c '%u:%g' /usr/bin/sudo) == 0:0 ]]
 [[ $(id -u root) == 0 ]]
 ! id dji >/dev/null 2>&1

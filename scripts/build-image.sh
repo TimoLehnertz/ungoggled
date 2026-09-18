@@ -56,19 +56,62 @@ for p in (r/'boot/firmware').iterdir():
     else:p.unlink()
 p=r/'etc/resolv.conf';p.unlink(missing_ok=True);p.symlink_to('/run/NetworkManager/resolv.conf')
 PY
-root_sectors=12582912 # 6 GiB, expanded to the card by firstboot.sh
+# Size the root filesystem around its contents rather than a fixed 6 GiB, so a
+# card flashes and verifies in half the time. firstboot.sh still grows the
+# partition and filesystem to the whole card on first boot.
+headroom_mib=512
+ceiling_mib=3584
 root_image=build/image/final-root.ext4
-truncate -s $((root_sectors*512)) "$root_image"
-unshare --user --map-root-user --map-auto --mount mke2fs -q -t ext4 -F -L rootfs -d build/image/rootfs "$root_image"
+fs_field() { dumpe2fs -h "$root_image" 2>/dev/null | sed -n "s/^$1: *//p"; }
+# Reserve 1% rather than ext4's default 5%: root is the only writer, and the
+# reservation grows with the card when firstboot.sh expands the filesystem.
+mkfs_root() {
+    rm -f "$root_image"
+    truncate -s "$1" "$root_image"
+    unshare --user --map-root-user --map-auto --mount mke2fs -q -t ext4 -F -m 1 -L rootfs -d build/image/rootfs "$root_image"
+}
+# resize2fs cannot estimate a minimum for this filesystem, so measure instead:
+# format once with room to spare to learn what ext4 really needs for the tree,
+# then format again at that size plus the headroom.
+content_kib=$(unshare --user --map-root-user --map-auto --mount du -s --block-size=1024 build/image/rootfs | cut -f1)
+mkfs_root $(((content_kib+content_kib/4+262144)*1024))
+used_mib=$((($(fs_field 'Block count')-$(fs_field 'Free blocks'))*$(fs_field 'Block size')/1048576))
+root_sectors=$(((used_mib+headroom_mib)*2048))
+mkfs_root $((root_sectors*512))
 e2fsck -fn "$root_image"
+free_mib=$(($(fs_field 'Free blocks')*$(fs_field 'Block size')/1048576))
+image_mib=$(((1064960+root_sectors)/2048))
+printf 'Root filesystem: %s MiB, %s MiB free; expanded image %s MiB\n' \
+    "$((root_sectors/2048))" "$free_mib" "$image_mib"
+if ((free_mib < headroom_mib || image_mib > ceiling_mib)); then
+    printf 'Wanted at least %s MiB free and at most %s MiB expanded\n' "$headroom_mib" "$ceiling_mib" >&2
+    exit 1
+fi
 out=dist/ungoggled-$version-pi4-arm64.img
 truncate -s $(((1064960+root_sectors)*512)) "$out"
 dd if="$base" of="$out" bs=512 count=16384 conv=notrunc status=none
 dd if=build/image/boot.fat of="$out" bs=512 seek=16384 conv=notrunc status=none
 dd if="$root_image" of="$out" bs=512 seek=1064960 conv=notrunc status=none
-python3 - "$out" "$root_sectors" <<'PY'
+# Record the shortened root partition, then read the image back: a card is
+# flashed from these bytes, so the table must describe what they contain.
+python3 - "$out" "$root_sectors" "$headroom_mib" <<'PY'
 import struct,sys
-with open(sys.argv[1],'r+b') as f:f.seek(462+12);f.write(struct.pack('<I',int(sys.argv[2])))
+path,root_sectors,headroom_mib=sys.argv[1],int(sys.argv[2]),int(sys.argv[3])
+boot_start,boot_sectors,root_start=16384,1048576,1064960
+with open(path,'r+b') as f:
+    f.seek(462+12);f.write(struct.pack('<I',root_sectors))
+    f.seek(0);mbr=f.read(512)
+    assert mbr[510:]==b'\x55\xaa','missing MBR signature'
+    assert struct.unpack_from('<II',mbr,446+8)==(boot_start,boot_sectors),'boot partition moved'
+    assert struct.unpack_from('<II',mbr,462+8)==(root_start,root_sectors),'root partition mismatch'
+    assert f.seek(0,2)==(root_start+root_sectors)*512,'image length does not match the table'
+    f.seek(boot_start*512+510);assert f.read(2)==b'\x55\xaa','boot partition is not bootable'
+    f.seek(root_start*512+1024);sb=f.read(1024)
+    assert struct.unpack_from('<H',sb,56)==(0xEF53,),'root partition is not ext4'
+    block_size=1024<<struct.unpack_from('<I',sb,24)[0]
+    blocks,free=struct.unpack_from('<I',sb,4)[0],struct.unpack_from('<I',sb,12)[0]
+    assert blocks*block_size<=root_sectors*512,'filesystem larger than its partition'
+    assert free*block_size>=headroom_mib*1048576,'less free space than the intended headroom'
 PY
 xz -T2 -3 -f "$out"
 (cd dist && sha256sum "$(basename "$out.xz")" > "$(basename "$out.xz.sha256")")

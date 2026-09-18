@@ -1,3 +1,8 @@
 # TODO
 
-- [ ] Reduce the expanded SD-card image size to shorten flashing and verification. Size the root filesystem and partition around their actual contents with working headroom, retain automatic expansion on first boot, and verify boot and updates from a freshly flashed card. Aim for roughly 3–3.5 GiB total, subject to validation.
+- [ ] Confirm on hardware that the root partition expanded to fill the card on
+      first boot. Everything else about the shortened image is verified: it
+      boots, the receiver links to the goggles at boot with the cable already
+      attached, and an update installs on top of it. One command answers it:
+      `ssh root@192.168.50.1 'df -h /'` — expect ~6.7 G on the 8 GB card, not
+      2.5 G.

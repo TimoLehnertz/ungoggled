@@ -67,3 +67,52 @@ and Clippy. The earlier dual-architecture results above describe the prototype.
 Old artifacts were moved out of `dist/` into `build/archived-dist/`; release
 outputs now consist of the ARM64 SD image, ARM64 application update and their
 checksum files. Intermediate image bundles and reports remain under `build/`.
+
+## Smaller SD-card image
+
+The root filesystem is now sized from its own contents plus 512 MiB of working
+headroom instead of a fixed 6 GiB, and documentation, translations and cached
+package lists the appliance never reads are removed during provisioning.
+Provisioning also stopped carrying earlier builds' release directories into the
+image, which a reused build tree had been accumulating.
+
+The rebuilt image writes 3074 MiB to a card instead of 6656 MiB, so flashing
+and the writer's verify pass take roughly half as long. The compressed download
+is 682 MB against 812 MB; most of the old image was empty space that compressed
+away.
+
+The build now fails if the root filesystem has less free space than the
+intended headroom or the expanded image exceeds 3.5 GiB, and it reads the
+finished image back to confirm the partition table, boot signature and ext4
+superblock describe the bytes a card is flashed from. The trimmed tree passed
+the same ARM64 chroot checks as before, plus new assertions that package
+licences and the dpkg database survive the trim.
+
+The distributed `.xz` was decompressed and checked directly: the table reports
+a 512 MiB boot partition and a 2554 MiB root partition, the extracted root
+filesystem passes `e2fsck -fn` with 516 MiB free, and it still contains
+`firstboot.sh`, `growpart` and `resize2fs` for first-boot expansion, package
+licences, and exactly one application release.
+
+Not yet done: the shortened image has not been flashed to a physical card, so
+first-boot partition expansion and an update installed on top of it remain
+unverified on hardware.
+
+
+## Shortened image on hardware
+
+The 3074 MiB image was flashed to an 8 GB card and booted. Over the Wi-Fi access
+point the receiver reported version 0.3.0, served the web interface on port 80
+with asset hashes matching the built release, drove HDMI at 1920x1080 at 60 Hz
+from the fallback image, mounted FunctionFS on `fe980000.usb`, and reached
+`waiting_video` with the goggles attached. Wi-Fi, SSH host-key generation and
+the fallback image all came up without intervention.
+
+An application update was then uploaded and installed through the web interface.
+It succeeded, the service came back on the new build, and settings, the fallback
+image library and the Wi-Fi profile were all preserved. Root-partition expansion
+is the one part of first boot still unconfirmed on hardware.
+
+Booting with the goggles already connected works: after a cold power cycle the
+receiver reached `waiting_video` with the accessory handshake complete and
+control traffic flowing, without a replug.

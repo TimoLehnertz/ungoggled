@@ -11,6 +11,8 @@
 - Fix V4L2 hardware decoder negotiation for Goggles streams advertising H.264 level 5.2, without changing the encoded video.
 - Fix fresh-image Wi-Fi being disabled by the stock NetworkManager radio state, and persist the configured radio country at boot.
 - Add semantic version management and automated release builds containing an SD-card image and an ARM64 update file.
+- Halve the SD-card image: the root filesystem is sized to its contents plus working headroom, and documentation, translations and cached package lists the appliance never reads are left out. The partition still expands to the whole card on first boot.
+- Ship only the current application release in the SD-card image, instead of also carrying the release directories of earlier builds.
 
 ## 0.2.0
 

@@ -62,7 +62,8 @@ Connect with `ssh root@192.168.50.1`. Change Wi-Fi credentials in the web
 interface and the root password with `passwd` if desired. Application updates
 preserve existing passwords; these defaults apply to freshly flashed images.
 
-The root partition expands on first boot, and each device generates its own
+Writing the image puts about 3 GiB on the card. The root partition then
+expands to fill it on first boot, and each device generates its own
 SSH host keys. The image's Wi-Fi radio country is
 **DE**; configure the correct country if using it elsewhere.
 
