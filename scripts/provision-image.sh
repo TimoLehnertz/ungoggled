@@ -15,6 +15,8 @@ cp -a "$bundle/bin" "$bundle/web" "$bundle/VERSION" "$bundle/ARCH" "$release/"
 ln -sfn "$release" /opt/dji-hdmi/current
 install -m755 "$bundle/prepare-pi.sh" /usr/local/lib/dji-hdmi/prepare-pi.sh
 install -m644 "$bundle/dji-hdmi.service" /etc/systemd/system/dji-hdmi.service
+install -m755 "$bundle/bin/ungoggled" /usr/local/lib/dji-hdmi/update-helper
+install -m644 "$bundle/ungoggled-update-recovery.service" /etc/systemd/system/ungoggled-update-recovery.service
 install -m755 /tmp/dji-firstboot.sh /usr/local/lib/dji-hdmi/firstboot.sh
 install -m644 /tmp/dji-firstboot.service /etc/systemd/system/dji-hdmi-firstboot.service
 printf 'DJI_HDMI_DECODER=v4l2h264dec\n' > /etc/default/dji-hdmi
@@ -32,7 +34,12 @@ printf 'PasswordAuthentication yes\nPermitRootLogin yes\n' > /etc/ssh/sshd_confi
 rm -f /etc/ssh/ssh_host_* /etc/machine-id /var/lib/dbus/machine-id
 : > /etc/machine-id
 ln -s /etc/machine-id /var/lib/dbus/machine-id
-mkdir -p /etc/NetworkManager/system-connections /etc/netplan
+# Stock Lite disables Wi-Fi in NetworkManager as well as rfkill. Unblocking
+# before NM starts is insufficient unless its saved radio state also changes.
+mkdir -p /var/lib/NetworkManager /etc/NetworkManager/system-connections /etc/netplan
+printf '[main]\nNetworkingEnabled=true\nWirelessEnabled=true\n' > /var/lib/NetworkManager/NetworkManager.state
+rm -f /var/lib/systemd/rfkill/*:wlan
+printf 'options rfkill default_state=1\n' > /etc/modprobe.d/rfkill_default.conf
 cat > /etc/NetworkManager/system-connections/dji-hdmi.nmconnection <<PROFILE
 [connection]
 id=dji-hdmi
@@ -72,7 +79,7 @@ chmod 600 /etc/netplan/90-dji-hdmi.yaml
 mkdir -p /etc/cloud /etc/systemd/system.conf.d
 : > /etc/cloud/cloud-init.disabled
 systemctl mask userconfig.service
-systemctl enable NetworkManager.service ssh.service dji-hdmi-firstboot.service dji-hdmi.service
+systemctl enable NetworkManager.service ssh.service ungoggled-update-recovery.service dji-hdmi-firstboot.service dji-hdmi.service
 printf '[Manager]\nRuntimeWatchdogSec=10s\n' > /etc/systemd/system.conf.d/dji-hdmi-watchdog.conf
 # Keep runtime logs off the SD card; configuration changes remain persistent.
 mkdir -p /etc/systemd/journald.conf.d

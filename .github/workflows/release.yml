@@ -1,0 +1,60 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-musl
+          components: clippy,rustfmt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Verify version and test
+        run: |
+          test "$GITHUB_REF_NAME" = "v$(python3 scripts/version.py --check)"
+          cargo fmt --check
+          cargo test --locked
+          cargo clippy --locked --all-targets -- -D warnings
+          npm --prefix web ci
+          npm --prefix web run format:check
+          npm --prefix web test
+      - name: Set up isolated ARM image build
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-user-static binfmt-support uidmap e2fsprogs curl xz-utils
+          sudo update-binfmts --enable qemu-aarch64
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          if ! grep -q "^$(id -un):" /etc/subuid; then sudo usermod --add-subuids 100000-165535 "$(id -un)"; fi
+          if ! grep -q "^$(id -un):" /etc/subgid; then sudo usermod --add-subgids 100000-165535 "$(id -un)"; fi
+          unshare --user --map-root-user --map-auto --mount true
+      - name: Build release assets
+        run: |
+          scripts/build-update.sh
+          scripts/build-image.sh
+          version=$(python3 scripts/version.py)
+          # Checksum files use basenames so users can run sha256sum -c in Downloads.
+          (cd dist && sha256sum "ungoggled-$version-pi4-arm64.img.xz" > "ungoggled-$version-pi4-arm64.img.xz.sha256")
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(python3 scripts/version.py)
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "ungoggled $version" \
+            --notes-file build/releases/RELEASE_NOTES.md \
+            "dist/ungoggled-$version-pi4-arm64.img.xz" \
+            "dist/ungoggled-$version-pi4-arm64.img.xz.sha256" \
+            "dist/ungoggled-$version.update.tar.gz" \
+            "dist/ungoggled-$version.update.tar.gz.sha256"

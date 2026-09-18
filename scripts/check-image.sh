@@ -1,8 +1,9 @@
 #!/bin/bash
 # Validation inside the image chroot with /dev, /proc and /sys mounted.
 set -euo pipefail
-systemd-analyze verify /etc/systemd/system/dji-hdmi.service /etc/systemd/system/dji-hdmi-firstboot.service
-for unit in dji-hdmi dji-hdmi-firstboot NetworkManager ssh; do systemctl is-enabled "$unit"; done
+systemd-analyze verify /etc/systemd/system/dji-hdmi.service /etc/systemd/system/dji-hdmi-firstboot.service /etc/systemd/system/ungoggled-update-recovery.service
+test -x /usr/local/lib/dji-hdmi/update-helper
+for unit in ungoggled-update-recovery dji-hdmi dji-hdmi-firstboot NetworkManager ssh; do systemctl is-enabled "$unit"; done
 [[ -u /usr/bin/sudo && $(stat -c %a /tmp) == 1777 ]]
 [[ $(stat -c '%u:%g' /usr/bin/sudo) == 0:0 ]]
 [[ $(id -u root) == 0 ]]
@@ -19,6 +20,10 @@ from pathlib import Path
 
 profile = configparser.ConfigParser(interpolation=None)
 profile.read('/tmp/dji-checked.nmconnection')
+state = configparser.ConfigParser()
+state.read('/var/lib/NetworkManager/NetworkManager.state')
+assert state.getboolean('main', 'WirelessEnabled'), 'Wi-Fi disabled in NetworkManager'
+assert Path('/etc/modprobe.d/rfkill_default.conf').read_text().strip() == 'options rfkill default_state=1'
 assert profile['wifi']['ssid'] == 'ungoggled'
 assert profile['wifi-security']['psk'] == 'ungoggled'
 root = next(line.split(':') for line in Path('/etc/shadow').read_text().splitlines()
@@ -33,7 +38,7 @@ ssh-keygen -q -t ed25519 -N '' -f /tmp/dji-check-hostkey
 sshd -T -h /tmp/dji-check-hostkey -C user=root,host=localhost,addr=127.0.0.1 > /tmp/dji-check-sshd
 grep -qx 'permitrootlogin yes' /tmp/dji-check-sshd
 grep -qx 'passwordauthentication yes' /tmp/dji-check-sshd
-for plugin in h264parse kmssink fpsdisplaysink jpegenc videorate videoscale videoconvert video4linux2; do
+for plugin in h264parse capssetter kmssink fpsdisplaysink jpegenc videorate videoscale videoconvert video4linux2; do
     gst-inspect-1.0 "$plugin" >/dev/null
 done
 /opt/dji-hdmi/current/bin/ungoggled serve --no-autostart --output none \

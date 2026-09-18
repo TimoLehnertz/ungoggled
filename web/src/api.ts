@@ -19,7 +19,9 @@ export function usePolling<T>(path: string, ms: number) {
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
       try {
-        const data = await api<T>(path, { signal: abort.signal });
+        const data = await api<T>(path, {
+          signal: AbortSignal.any([abort.signal, AbortSignal.timeout(5000)]),
+        });
         if (!abort.signal.aborted) {
           setValue(data);
           setError("");

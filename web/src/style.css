@@ -435,3 +435,68 @@ footer {
     max-width: 180px;
   }
 }
+
+.software-update {
+  margin-top: 16px;
+  scroll-margin-top: 20px;
+}
+.software-update .actions {
+  align-items: center;
+}
+.software-update .actions a {
+  margin-left: 6px;
+}
+.software-update .update-upload {
+  margin-top: 24px;
+}
+.release-notice {
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin-bottom: 16px;
+}
+.release-summary {
+  margin-top: 16px;
+}
+.release-details,
+.update-ready {
+  margin-top: 12px;
+  padding: 16px;
+  border: 1px solid var(--border, #343d48);
+  border-radius: 6px;
+}
+.release-details h3 {
+  margin: 0 0 12px;
+}
+.release-notes {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 400px;
+  overflow-y: auto;
+  margin: 12px 0;
+  line-height: 1.6;
+  font-family: inherit;
+}
+.update-ready button {
+  margin-top: 12px;
+}
+.update-ready details {
+  margin-top: 12px;
+}
+.software-update progress {
+  width: 160px;
+  accent-color: #4f93ee;
+}
+.software-update .disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+  padding: 0;
+}

@@ -46,6 +46,7 @@ pub fn router(app: App, web: std::path::PathBuf) -> Router {
         .route("/api/preview.jpg", get(preview))
         .route("/api/wifi", get(get_wifi).post(save_wifi))
         .layer(DefaultBodyLimit::max(assets::MAX_UPLOAD + 65536))
+        .merge(crate::update::api::routes())
         .fallback_service(ServeDir::new(web))
         .with_state(app)
 }
@@ -72,6 +73,7 @@ async fn save_settings(
     }
     tokio::task::spawn_blocking(move || {
         let _lock = a.operations.lock().unwrap();
+        crate::update::api::ensure_idle()?;
         a.settings.save(s)
     })
     .await
@@ -96,6 +98,7 @@ async fn upload(
     let bytes = field.bytes().await.map_err(bad)?;
     let result = tokio::task::spawn_blocking(move || {
         let _lock = a.operations.lock().unwrap();
+        crate::update::api::ensure_idle()?;
         assets::upload(&a.settings.dir.join("images"), &bytes)
     })
     .await
@@ -132,6 +135,7 @@ async fn remove_image(
     }
     tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
         let _lock = a.operations.lock().unwrap();
+        crate::update::api::ensure_idle()?;
         if a.settings.get().fallback_image.as_deref() == Some(&id) {
             anyhow::bail!("Select another fallback before deleting this image");
         }
@@ -176,6 +180,8 @@ async fn save_wifi(
 ) -> ApiResult<Json<Value>> {
     guard(&h)?;
     wifi::validate(&c).map_err(bad)?;
+    let _operations = a.operations.lock().unwrap();
+    crate::update::api::ensure_idle().map_err(bad)?;
     if a.wifi_busy.swap(true, Ordering::SeqCst) {
         return Err(bad("Wi-Fi change already in progress"));
     }

@@ -1,4 +1,5 @@
 #!/bin/sh
+# Historical Buster research helper; not part of supported ARM64 releases.
 # Optional compatibility plugin for 32-bit Buster with /opt/vc userland.
 # Dependencies: build-essential, pkg-config, curl, xz-utils,
 # libgstreamer1.0-dev, libgstreamer-plugins-base1.0-dev, libraspberrypi-dev.

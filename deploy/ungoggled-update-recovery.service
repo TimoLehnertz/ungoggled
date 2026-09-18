@@ -1,0 +1,13 @@
+[Unit]
+Description=Recover interrupted ungoggled updates
+After=local-fs.target
+Before=dji-hdmi.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/dji-hdmi/update-helper update-recover
+RemainAfterExit=yes
+TimeoutStartSec=60
+
+[Install]
+WantedBy=multi-user.target

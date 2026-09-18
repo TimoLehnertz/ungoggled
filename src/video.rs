@@ -319,6 +319,14 @@ fn spawn_player(
         "!",
         "video/x-h264,stream-format=byte-stream,alignment=au",
         "!",
+    ]);
+    if args.decoder == "v4l2h264dec" {
+        // Goggles advertise level 5.2 even for 1080p30. Pi's V4L2 plugin caps
+        // stop at 5.1 and reject the stream before hardware sees it. Adjust only
+        // negotiation metadata; SPS and every encoded video byte stay intact.
+        cmd.args(["capssetter", "caps=video/x-h264,level=(string)5.1", "!"]);
+    }
+    cmd.args([
         &args.decoder,
         "!",
         "tee",

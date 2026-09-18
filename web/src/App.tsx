@@ -4,6 +4,8 @@ import { api, headers, usePolling } from "./api";
 import { number, size } from "./format";
 import { Preview } from "./components/Preview";
 import { Timeline } from "./components/Timeline";
+import { SoftwareUpdate } from "./components/SoftwareUpdate";
+import { useReleases } from "./releases";
 import { WifiPanel } from "./components/WifiPanel";
 const phases: Record<string, string> = {
   streaming: "Receiving video",
@@ -27,6 +29,9 @@ export default function App() {
   const [images, setImages] = useState<ImageEntry[]>([]);
   const [mode, setMode] = useState("auto");
   const [busy, setBusy] = useState(false);
+  const [updateBusy, setUpdateBusy] = useState(false);
+  const [showRelease, setShowRelease] = useState(false);
+  const releases = useReleases(status?.version);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   useEffect(() => {
@@ -85,7 +90,7 @@ export default function App() {
           {status?.version && `v${status.version}`}
         </span>
       </header>
-      {(error || connectionError) && (
+      {(error || (connectionError && !updateBusy)) && (
         <div className="alert" role="alert">
           {error || "Cannot reach the receiver. Check your network connection."}
         </div>
@@ -100,6 +105,19 @@ export default function App() {
             ×
           </button>
         </div>
+      )}
+      {releases.latest && (
+        <button
+          className="notice release-notice"
+          onClick={() => {
+            setShowRelease(true);
+            document
+              .getElementById("software-update")
+              ?.scrollIntoView({ behavior: "smooth" });
+          }}
+        >
+          ungoggled v{releases.latest.version} available · View release notes
+        </button>
       )}
       <section className="metrics" aria-label="Video status">
         <Metric
@@ -130,7 +148,7 @@ export default function App() {
               <input
                 type="checkbox"
                 checked={settings?.preview_enabled ?? false}
-                disabled={busy || !settings}
+                disabled={busy || updateBusy || !settings}
                 onChange={(e) => {
                   if (settings)
                     void run(() =>
@@ -166,7 +184,7 @@ export default function App() {
           <div className="actions">
             <button
               className="primary"
-              disabled={busy || !status || !!connectionError}
+              disabled={busy || updateBusy || !status || !!connectionError}
               onClick={() =>
                 void run(async () => {
                   await api(status?.enabled ? "stop" : "start", {
@@ -179,7 +197,7 @@ export default function App() {
               {status?.enabled ? "Stop receiver" : "Start receiver"}
             </button>
             <button
-              disabled={busy || !status || !!connectionError}
+              disabled={busy || updateBusy || !status || !!connectionError}
               onClick={() =>
                 void run(async () => {
                   await api("restart", { method: "POST", headers });
@@ -217,7 +235,9 @@ export default function App() {
                 ))}
               </select>
               <button
-                disabled={busy || !settings || mode === settings.hdmi_mode}
+                disabled={
+                  busy || updateBusy || !settings || mode === settings.hdmi_mode
+                }
               >
                 Apply
               </button>
@@ -241,7 +261,7 @@ export default function App() {
               className={!settings?.fallback_image ? "selected" : ""}
               title="Use solid dark background"
               aria-label="Use solid dark background"
-              disabled={busy}
+              disabled={busy || updateBusy}
               onClick={() => {
                 if (settings)
                   void run(() => save({ ...settings, fallback_image: null }));
@@ -256,7 +276,7 @@ export default function App() {
                   settings?.fallback_image === img.id ? "selected" : ""
                 }
                 aria-label={`Select fallback image ${i + 1}`}
-                disabled={busy}
+                disabled={busy || updateBusy}
                 onClick={() => {
                   if (settings)
                     void run(() =>
@@ -275,7 +295,7 @@ export default function App() {
                 className="file-input"
                 type="file"
                 accept="image/png,image/jpeg,image/webp"
-                disabled={busy || !settings}
+                disabled={busy || updateBusy || !settings}
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   e.target.value = "";
@@ -298,7 +318,7 @@ export default function App() {
             </label>
             {selected && (
               <button
-                disabled={busy}
+                disabled={busy || updateBusy}
                 onClick={() =>
                   void run(async () => {
                     await save({ ...settings!, fallback_image: null });
@@ -323,7 +343,13 @@ export default function App() {
         </section>
       </div>
       <Timeline history={history} />
-      <WifiPanel notify={setNotice} />
+      <WifiPanel notify={setNotice} disabled={updateBusy} />
+      <SoftwareUpdate
+        releases={releases}
+        showRelease={showRelease}
+        setShowRelease={setShowRelease}
+        onBusy={setUpdateBusy}
+      />
       <details className="panel diagnostics">
         <summary>Diagnostics</summary>
         <dl>

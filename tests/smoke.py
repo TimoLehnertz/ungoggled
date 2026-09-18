@@ -30,6 +30,9 @@ with tempfile.TemporaryDirectory(prefix='ungoggled-smoke-') as temp:
             try:request('status');break
             except (urllib.error.URLError,ConnectionError):time.sleep(.05)
         assert rejected('stop',{},'POST',guard=False)==403
+        update=request('update')
+        assert update['current_version']==request('status')['version']
+        assert rejected('update/install',{'id':'1'},'POST',guard=False)==403
         settings=request('settings')
         assert rejected('settings',{**settings,'hdmi_mode':'1920x1080@999'},'POST')==400
         boundary='smoke-boundary'

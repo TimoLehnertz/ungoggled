@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
 import type { Wifi } from "../types";
 import { api, headers, usePolling } from "../api";
-export function WifiPanel({ notify }: { notify: (s: string) => void }) {
+export function WifiPanel({
+  notify,
+  disabled = false,
+}: {
+  notify: (s: string) => void;
+  disabled?: boolean;
+}) {
   const { value: wifi } = usePolling<Wifi>("wifi", 5000);
   const [ssid, setSsid] = useState("");
   const [password, setPassword] = useState("");
@@ -60,7 +66,9 @@ export function WifiPanel({ notify }: { notify: (s: string) => void }) {
                 onChange={(e) => setPassword(e.target.value)}
               />
             </label>
-            <button disabled={busy || wifi.applying}>Apply Wi-Fi</button>
+            <button disabled={busy || disabled || wifi.applying}>
+              Apply Wi-Fi
+            </button>
           </div>
           <p className="help">
             Applying disconnects Wi-Fi. Reconnect using the new SSID and

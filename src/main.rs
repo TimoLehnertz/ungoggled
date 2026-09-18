@@ -7,6 +7,7 @@ mod h264;
 mod history;
 mod protocol;
 mod settings;
+mod update;
 mod video;
 mod wifi;
 
@@ -43,7 +44,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     Serve {
-        #[arg(long, default_value = "0.0.0.0:8080")]
+        #[arg(long, default_value = "0.0.0.0:80")]
         listen: String,
         #[arg(long, default_value = "web/dist")]
         web_dir: PathBuf,
@@ -59,6 +60,32 @@ enum Commands {
     #[command(hide = true)]
     Worker(WorkerArgs),
     Doctor,
+    /// Verify an update archive without installing it.
+    CheckUpdate {
+        #[arg(long)]
+        file: PathBuf,
+        #[arg(long, default_value = "aarch64", value_parser = ["aarch64"])]
+        architecture: String,
+    },
+    /// Install an unpacked application update (manual bootstrap).
+    UpdateInstall {
+        #[arg(long)]
+        source: PathBuf,
+    },
+    #[command(hide = true)]
+    UpdateWorker {
+        #[arg(long)]
+        id: String,
+    },
+    #[command(hide = true)]
+    UpdateRecover,
+    #[command(hide = true)]
+    MigrateSettings {
+        #[arg(long)]
+        data_dir: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
 }
 #[derive(Args, Clone)]
 pub struct WorkerArgs {
@@ -107,6 +134,32 @@ struct App {
 #[tokio::main]
 async fn main() -> Result<()> {
     match Cli::parse().command {
+        Commands::CheckUpdate { file, architecture } => {
+            let staging =
+                std::env::temp_dir().join(format!("ungoggled-verify-{}", std::process::id()));
+            let result = update::package::unpack(&file, &staging, &architecture);
+            // Never delete a pre-existing path if create_dir failed.
+            if let Ok(manifest) = &result {
+                std::fs::remove_dir_all(&staging)?;
+                println!(
+                    "Verified ungoggled {} for {} ({})",
+                    manifest.version,
+                    architecture,
+                    manifest.release_id()?
+                );
+            }
+            result.map(|_| ())
+        }
+        Commands::UpdateInstall { source } => update::manual(&source),
+        Commands::UpdateWorker { id } => update::install(&id),
+        Commands::UpdateRecover => update::recover(),
+        Commands::MigrateSettings { data_dir, output } => {
+            println!(
+                "{}",
+                serde_json::to_string(&settings::migrate(&data_dir, &output)?)?
+            );
+            Ok(())
+        }
         Commands::Worker(args) => {
             let result = if args.transport == "functionfs" {
                 functionfs::run(&args)
@@ -216,6 +269,7 @@ impl App {
         s["uptime_seconds"] = json!(self.since.elapsed().as_secs());
         s["temperature_c"] = json!(history::temperature());
         s["version"] = json!(env!("CARGO_PKG_VERSION"));
+        s["build_id"] = json!(update::running_build());
         s
     }
 }
@@ -229,16 +283,19 @@ fn guard(headers: &HeaderMap) -> Result<(), StatusCode> {
 }
 async fn start(State(app): State<App>, headers: HeaderMap) -> Result<Json<Value>, StatusCode> {
     guard(&headers)?;
+    update::api::ensure_idle().map_err(|_| StatusCode::CONFLICT)?;
     app.enabled.store(true, Ordering::Relaxed);
     Ok(Json(json!({"accepted":true})))
 }
 async fn stop(State(app): State<App>, headers: HeaderMap) -> Result<Json<Value>, StatusCode> {
     guard(&headers)?;
+    update::api::ensure_idle().map_err(|_| StatusCode::CONFLICT)?;
     app.enabled.store(false, Ordering::Relaxed);
     Ok(Json(json!({"accepted":true})))
 }
 async fn restart(State(app): State<App>, headers: HeaderMap) -> Result<Json<Value>, StatusCode> {
     guard(&headers)?;
+    update::api::ensure_idle().map_err(|_| StatusCode::CONFLICT)?;
     app.enabled.store(true, Ordering::Relaxed);
     app.restart.fetch_add(1, Ordering::Relaxed);
     Ok(Json(json!({"accepted":true})))

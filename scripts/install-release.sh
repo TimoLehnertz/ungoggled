@@ -33,12 +33,15 @@ if [[ ! -e /etc/default/dji-hdmi ]]; then
 fi
 ln -sfn "$release" /opt/dji-hdmi/current.next
 mv -Tf /opt/dji-hdmi/current.next /opt/dji-hdmi/current
+install -m755 bin/ungoggled /usr/local/lib/dji-hdmi/update-helper
+install -m644 ungoggled-update-recovery.service /etc/systemd/system/ungoggled-update-recovery.service
+systemctl enable ungoggled-update-recovery.service
 systemctl daemon-reload
 systemctl enable dji-hdmi.service
 healthy=0
 if systemctl restart dji-hdmi.service; then
 for _ in {1..30}; do
-    if curl -fsS --max-time 1 http://127.0.0.1:8090/api/settings >/dev/null; then healthy=1;break;fi
+    if curl -fsS --max-time 1 http://127.0.0.1/api/settings >/dev/null; then healthy=1;break;fi
     sleep 1
 done
 fi
@@ -58,4 +61,4 @@ if [[ $healthy == 0 ]]; then
     fi
     exit 1
 fi
-printf 'Installed %s. Open http://192.168.50.1:8090\n' "$version"
+printf 'Installed %s. Open http://192.168.50.1\n' "$version"

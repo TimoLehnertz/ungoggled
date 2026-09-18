@@ -1,4 +1,5 @@
 #!/bin/sh
+# Historical Buster research helper; not part of supported ARM64 releases.
 # Migrate the supplied Cosmostreamer Buster Pi, preserving its Wi-Fi credentials.
 # Run from the project with built assets, a matching receiver and legacy plugin.
 # Changes next boot only; the current development service/network stay running.

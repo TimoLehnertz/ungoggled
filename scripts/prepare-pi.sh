@@ -12,7 +12,7 @@ fi
 if ! mountpoint -q /sys/kernel/config; then
     mount -t configfs configfs /sys/kernel/config
 fi
-for element in h264parse kmssink fpsdisplaysink jpegenc videorate videoscale videoconvert; do
+for element in h264parse capssetter kmssink fpsdisplaysink jpegenc videorate videoscale videoconvert; do
     gst-inspect-1.0 "$element" >/dev/null
 done
 echo 'Configfs, FunctionFS and video plugins ready.'

@@ -18,7 +18,8 @@ separately.
   and held in RAM.
 - Wi-Fi access-point SSID and password controls.
 - Automatic startup and recovery after USB disconnects or stream changes.
-- Application updates without reflashing the SD card.
+- Web updates with settings retention, startup checks and automatic rollback.
+- New-release notices with GitHub release notes and download links.
 
 ## Hardware and wiring
 
@@ -39,13 +40,13 @@ The receiver cannot remove overlays already embedded in the incoming image.
 
 The image is based on **Raspberry Pi OS Lite 64-bit, Debian 13 Trixie**.
 
-1. Download `ungoggled-0.2.0-pi4-arm64.img.xz` from the release files.
+1. Download `ungoggled-0.3.0-pi4-arm64.img.xz` from the release files.
 2. Burn it to the microSD card. Recommended writers: Caligula (on linux), Raspberry Pi Imager (on windows)
 3. Skip any OS customization the tool offers: the image already contains its
    network and login setup.
 4. Verify the card, insert it into the Pi, and power on.
 5. Join **ungoggled** using the password **ungoggled**.
-6. Open **http://192.168.50.1:8090**.
+6. Open **http://192.168.50.1**.
 
 ### Default credentials
 
@@ -55,7 +56,7 @@ The image is based on **Raspberry Pi OS Lite 64-bit, Debian 13 Trixie**.
 | Wi-Fi password | `ungoggled` |
 | SSH username | `root` |
 | SSH password | `ungoggled` |
-| Web interface | `http://192.168.50.1:8090` |
+| Web interface | `http://192.168.50.1` |
 
 Connect with `ssh root@192.168.50.1`. Change Wi-Fi credentials in the web
 interface and the root password with `passwd` if desired. Application updates
@@ -65,9 +66,10 @@ The root partition expands on first boot, and each device generates its own
 SSH host keys. The image's Wi-Fi radio country is
 **DE**; configure the correct country if using it elsewhere.
 
-> The new Trixie image requires a physical boot/decoder check on a Pi. The earlier
-> O3/O4 HDMI confirmations were on the supplied Buster installation. See
-> [validation notes](FINDINGS.MD) for the current evidence and remaining checks.
+> Version 0.3.0 fixes two fresh-image issues found in 0.2.0: disabled Wi-Fi and
+> V4L2 decoder rejection of the goggles’ H.264 level metadata. Live O3 decoding
+> at 1080p30 and O4 captured-video decoding have been checked on Trixie. See
+> [validation notes](FINDINGS.MD) for hardware test details.
 
 ## Use the web interface
 
@@ -95,33 +97,53 @@ when the application restarts; it does not write continuously to the SD card.
 **Wi-Fi:** enter the SSID and a new password, then apply. Reconnect your computer
 using those credentials. HDMI reception continues during the network change.
 The web interface is intended for your private local network and has no separate
-login; do not expose port 8090 to the Internet.
+login; do not expose port 80 to the Internet.
 
 ## Update without reflashing
 
-Use the release bundle for your Pi OS architecture:
+From version **0.3.0**, open **Software update** in the web interface:
 
-| Pi OS | Bundle |
-| --- | --- |
-| 64-bit | `ungoggled-0.2.0-aarch64.tar.gz` |
-| 32-bit legacy installation | `ungoggled-0.2.0-armv7l.tar.gz` |
+1. Download `ungoggled-VERSION.update.tar.gz` from [GitHub releases](https://github.com/TimoLehnertz/ungoggled/releases).
+2. Click **Upload update** and choose the file. The Pi checks its contents and checksums.
+3. Review the version and click **Install**. Keep the Pi powered while it updates.
+4. The interface reconnects and reloads when installation finishes.
 
-Copy it to the Pi, unpack it, and run its installer:
+Only **Raspberry Pi 4 with 64-bit Raspberry Pi OS (ARM64)** is supported.
+The update contains the entire application: you can skip intermediate application versions. Only install update
+files from releases you trust; checksums detect corruption, not publisher identity.
+
+Compatible HDMI, preview and fallback settings are retained, as are uploaded
+images, Wi-Fi configuration and passwords. Incompatible application settings use
+defaults and are listed after installation. Video briefly stops and the RAM
+history resets. If the new application fails its startup check, the previous
+application and settings are restored. A recovery service handles interrupted
+installations on the next boot. Keep at least **640 MiB** free on the root partition.
+
+The browser checks GitHub hourly and shows a notice for a newer stable release.
+Click it for release notes and a download link. This uses your browser's Internet
+connection; the Pi itself can stay offline. Uploads work without Internet access.
+Application updates do not replace Raspberry Pi OS, its kernel or media packages.
+Downgrades are not supported.
+
+### Upgrading an installation older than 0.3.0
+
+Older software has no upload endpoint. Run this **once** over SSH to add it;
+subsequent updates use the web interface. The same commands remain available as
+a manual deployment path (replace `0.3.0` with the release you downloaded):
 
 ```sh
-scp ungoggled-0.2.0-aarch64.tar.gz root@192.168.50.1:/tmp/
+scp ungoggled-0.3.0.update.tar.gz root@192.168.50.1:/tmp/
 ssh root@192.168.50.1
-cd /tmp
-tar -xzf ungoggled-0.2.0-aarch64.tar.gz
-cd ungoggled-0.2.0-aarch64
+update_dir=$(mktemp -d /tmp/ungoggled-update.XXXXXX)
+cd "$update_dir"
+tar -xzf /tmp/ungoggled-0.3.0.update.tar.gz
 ./install.sh
 ```
 
-The installer verifies checksums, preserves settings/images/Wi-Fi, switches to
-the new application release and checks the HTTP API. If that check fails, it
-restores the previous application release when one exists. Updating briefly
-interrupts video and clears the in-memory history. A read-only legacy root
-filesystem must be remounted writable before installing or changing settings.
+The installer starts a background update and prints the web address. Installation
+status is also saved in `/var/lib/ungoggled-update/state.json`; logs are available
+with `journalctl -u 'ungoggled-update-*'`. A read-only legacy root filesystem
+must be remounted writable before installing or changing settings.
 
 ## Manual installation on Raspberry Pi OS Lite
 
@@ -140,15 +162,15 @@ Add this to `/boot/firmware/config.txt` and reboot:
 dtoverlay=dwc2,dr_mode=peripheral
 ```
 
-Then install a release bundle as above, using your own Pi login and
+Then install an ARM64 update as above, using your own Pi login and
 `sudo ./install.sh` when logged in as a non-root user. Use the Pi's existing network address to
-open port 8090. The application installer preserves your network configuration;
+open the web interface on port 80. The application installer preserves your network configuration;
 the preconfigured SD image additionally supplies the ungoggled access point.
 The receiver needs exclusive use of the USB device controller and HDMI display.
 
 ## Build from source
 
-Requires Rust stable with edition 2024 support, Node.js and npm.
+Requires Rust stable with edition 2024 support, Node.js 24+, Python 3.11+ and npm.
 
 ```sh
 cd web
@@ -166,11 +188,11 @@ On the Pi, install the resulting binary and web assets with:
 sudo scripts/install-pi.sh target/release/ungoggled
 ```
 
-To cross-compile release bundles on Linux:
+To build the ARM64 update on Linux:
 
 ```sh
 rustup target add aarch64-unknown-linux-musl
-scripts/package-release.sh aarch64-unknown-linux-musl
+scripts/build-update.sh
 ```
 
 Build the SD image with `scripts/build-image.sh`. It uses the checksum-pinned
@@ -178,7 +200,8 @@ official base image and installs packages inside an isolated ARM64 filesystem.
 The Linux build host needs QEMU's registered `qemu-aarch64` binfmt handler,
 subordinate UID/GID mappings, `unshare`, `newuidmap`, `newgidmap`, e2fsprogs,
 curl, xz, Rust and Node.js. It does not write to a physical SD card. Outputs
-are written to `dist/`; intermediate files stay in `build/`.
+are written to `dist/`: one image, one update, and their checksum files.
+Intermediate bundles, release notes and build reports stay in `build/`.
 
 For a hardware-free integration check, install GStreamer with its software H.264
 and JPEG plugins, then run:
@@ -187,6 +210,30 @@ and JPEG plugins, then run:
 cargo build
 python3 tests/smoke.py target/debug/ungoggled /path/to/captured-video.h264
 ```
+
+## Versions and releases
+
+`Cargo.toml` is the version source. Use stable semantic versions (`MAJOR.MINOR.PATCH`):
+
+```sh
+python3 scripts/version.py --set 0.3.1
+# Add a matching "## 0.3.1" entry to CHANGELOG.md.
+python3 scripts/version.py --check
+```
+
+Commit the changes and push a matching `v0.3.1` tag when ready to publish.
+The release workflow builds for ARM64 and runs the tests, then creates a GitHub
+release with notes from `CHANGELOG.md` and these assets:
+
+- `ungoggled-VERSION-pi4-arm64.img.xz` — fresh SD-card installation.
+- `ungoggled-VERSION.update.tar.gz` — complete application update for ARM64.
+- SHA-256 checksum files for both downloads.
+
+The update package format and migration entry point stay compatible with the
+0.3.0 updater. Each target release handles migration from older settings; no
+intermediate release is required. Build locally with `scripts/build-update.sh`
+and `scripts/build-image.sh`. See [CHANGELOG.md](CHANGELOG.md) for release notes
+and [the updater contract](docs/UPDATES.md) for maintenance details.
 
 ## Service and files
 
@@ -197,6 +244,8 @@ compatibility with existing installations. The application executable is
 | Location | Purpose |
 | --- | --- |
 | `dji-hdmi.service` | Receiver, renderer and HTTP server |
+| `ungoggled-update-recovery.service` | Recover interrupted installations at boot |
+| `/var/lib/ungoggled-update/` | Update progress, staging and rollback snapshots |
 | `/opt/dji-hdmi/current` | Active application release |
 | `/opt/dji-hdmi/releases/` | Installed releases |
 | `/var/lib/dji-hdmi/` | Settings and fallback images |
@@ -214,8 +263,8 @@ GStreamer handles decoding and the small JPEG preview. The web application uses
 React, TypeScript, Rsbuild and Tailwind. USB workers are supervised independently
 of the persistent renderer.
 
-The old 32-bit Buster image needs a separate `gst-omx` compatibility plugin;
-modern Pi OS uses V4L2. Protocol research and legacy setup details are retained in
+Historical protocol research and
+legacy setup details are retained in
 [FINDINGS.MD](FINDINGS.MD). Dependency attribution is in
 [THIRD_PARTY.md](THIRD_PARTY.md).
 
