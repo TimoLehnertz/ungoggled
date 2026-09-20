@@ -7,6 +7,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
+use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{sync::atomic::Ordering, time::Duration};
 use tower_http::services::ServeDir;
@@ -42,6 +43,7 @@ pub fn router(app: App, web: std::path::PathBuf) -> Router {
         .route("/api/restart", post(crate::restart))
         .route("/api/system/reboot", post(reboot))
         .route("/api/system/shutdown", post(shutdown))
+        .route("/api/system/time", post(set_time))
         .route("/api/hardware/test-beeper", post(test_beeper))
         .route("/api/settings", get(get_settings).post(save_settings))
         .route("/api/images", get(images).post(upload))
@@ -58,6 +60,34 @@ async fn reboot(State(a): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
 }
 async fn shutdown(State(a): State<App>, h: HeaderMap) -> ApiResult<Json<Value>> {
     power_action(a, h, "poweroff").await
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ClockChange {
+    unix_ms: u64,
+    timezone: Option<String>,
+}
+async fn set_time(
+    State(a): State<App>,
+    h: HeaderMap,
+    Json(c): Json<ClockChange>,
+) -> ApiResult<Json<Value>> {
+    guard(&h)?;
+    tokio::task::spawn_blocking(move || {
+        let _lock = a.operations.lock().unwrap();
+        crate::update::api::ensure_idle()?;
+        crate::clock::apply(c.unix_ms, c.timezone.as_deref())
+    })
+    .await
+    .map_err(bad)?
+    .map_err(bad)?;
+    let clock = crate::clock::now();
+    Ok(Json(json!({
+        "saved": true,
+        "time_unix_ms": clock.as_ref().map(|t| t.unix_ms),
+        "time": clock.as_ref().map(|t| t.display()),
+        "timezone": clock.as_ref().map(|t| t.tz.clone()),
+    })))
 }
 async fn power_action(a: App, h: HeaderMap, verb: &'static str) -> ApiResult<Json<Value>> {
     guard(&h)?;

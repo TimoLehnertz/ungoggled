@@ -252,6 +252,15 @@ pub(crate) fn start_bulk(mut input: File, output: File, args: WorkerArgs) {
                     std::process::exit(1);
                 }
             }
+            if args.sync_time
+                && let Some(clock) = crate::clock::now()
+            {
+                let packet = protocol::time_sync(&mut seq, args.control_port, &clock);
+                if let Err(e) = write_bulk(&mut *tx.lock().unwrap(), &packet) {
+                    eprintln!("USB TX: {e}");
+                    std::process::exit(1);
+                }
+            }
             thread::sleep(Duration::from_secs(3));
         }
     });
@@ -274,6 +283,7 @@ pub(crate) fn start_bulk(mut input: File, output: File, args: WorkerArgs) {
             let mut captured = 0u64;
             let video = video::Output::connect(&args.video_socket);
             let mut controls = 0u64;
+            let mut clock_ack = false;
             let mut last_log = Instant::now();
             loop {
                 let n = match input.read(&mut buffer) {
@@ -301,7 +311,17 @@ pub(crate) fn start_bulk(mut input: File, output: File, args: WorkerArgs) {
                     } else if port == protocol::CONTROL || port == 0x5749 {
                         controls += 1;
                         if protocol::valid(&payload) {
-                            if controls < 30 {
+                            if protocol::is_time_sync(&payload) {
+                                let body = &payload[11..payload.len() - 2];
+                                if body == [0] {
+                                    if !clock_ack {
+                                        eprintln!("air unit clock set");
+                                        clock_ack = true;
+                                    }
+                                } else {
+                                    eprintln!("air unit clock rejected payload={body:02x?}");
+                                }
+                            } else if controls < 30 {
                                 eprintln!(
                                     "DUML {:02x}->{:02x} {:02x}:{:02x} flags={:02x} payload={:02x?}",
                                     payload[4],

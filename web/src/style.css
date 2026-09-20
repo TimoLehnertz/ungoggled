@@ -335,6 +335,13 @@ hr {
 .diagnostics {
   margin-top: 16px;
 }
+.system .clock {
+  font-variant-numeric: tabular-nums;
+  margin: 0 0 8px;
+}
+.system .help {
+  margin-top: 0;
+}
 .hardware-fields {
   display: grid;
   grid-template-columns: 1fr auto;

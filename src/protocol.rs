@@ -161,6 +161,30 @@ pub fn registration(seq: &mut u16, port: u16) -> Vec<Vec<u8>> {
     .collect()
 }
 
+const TIME_RECEIVER: u8 = 0x28;
+const TIME_SET_CALENDAR: u8 = 0x4a;
+
+/// SetDateTime on the air-unit RTC. Verified on Goggles 3 with O3/O4: ACK 00.
+pub fn time_sync(seq: &mut u16, port: u16, clock: &crate::clock::Wall) -> Vec<u8> {
+    *seq = seq.wrapping_add(1);
+    let mut payload = clock.year.to_le_bytes().to_vec();
+    payload.extend([
+        clock.month,
+        clock.day,
+        clock.hour,
+        clock.minute,
+        clock.second,
+    ]);
+    wrap(
+        port,
+        &duml(2, TIME_RECEIVER, *seq, 0x40, 0, TIME_SET_CALENDAR, &payload),
+    )
+}
+
+pub fn is_time_sync(p: &[u8]) -> bool {
+    valid(p) && p[9] == 0 && p[10] == TIME_SET_CALENDAR
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -214,5 +238,32 @@ mod tests {
         assert!(valid(&response));
         assert_eq!(&response[4..11], &[2, 0x3c, 123, 0, 0x80, 0, 0x88]);
         assert!(identity_reply(&response).is_none());
+    }
+    #[test]
+    fn time_sync_sends_calendar_set_to_rtc_endpoint() {
+        let clock = crate::clock::Wall {
+            unix_ms: 1_700_000_000_000,
+            year: 2026,
+            month: 9,
+            day: 20,
+            hour: 18,
+            minute: 15,
+            second: 7,
+            tz: "Europe/Berlin".into(),
+        };
+        let mut seq = 0x10;
+        let packet = time_sync(&mut seq, CONTROL, &clock);
+        assert_eq!(seq, 0x11);
+        let frame = &packet[8..];
+        assert!(valid(frame));
+        assert!(is_time_sync(frame));
+        assert_eq!(&frame[4..6], &[2, TIME_RECEIVER]);
+        assert_eq!(&frame[8..11], &[0x40, 0, TIME_SET_CALENDAR]);
+        assert_eq!(&frame[11..frame.len() - 2], [0xea, 0x07, 9, 20, 18, 15, 7]);
+        let ack = duml(TIME_RECEIVER, 2, 0x11, 0xc0, 0, TIME_SET_CALENDAR, &[0]);
+        assert!(is_time_sync(&ack));
+        assert!(!is_time_sync(&unhex(
+            "551b0475023cf4fe400088170000230041505000000000000258a6"
+        )));
     }
 }

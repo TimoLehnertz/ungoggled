@@ -27,6 +27,9 @@ export type Status = {
   goggles_led_error?: string | null;
   video_led_error?: string | null;
   hdmi_led_error?: string | null;
+  time_unix_ms?: number;
+  time?: string;
+  timezone?: string;
 };
 export type Settings = {
   hdmi_mode: string;

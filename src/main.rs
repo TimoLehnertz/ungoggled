@@ -1,5 +1,6 @@
 mod api;
 mod assets;
+mod clock;
 mod display;
 mod functionfs;
 mod gadget;
@@ -114,6 +115,16 @@ pub struct WorkerArgs {
     accessory_pid: u16,
     #[arg(long, hide = true)]
     cold_accessory: bool,
+    /// After USB registration, send DUML clock commands from the Pi wall clock.
+    #[arg(
+        long,
+        default_value_t = true,
+        action = clap::ArgAction::Set,
+        num_args = 0..=1,
+        default_missing_value = "true",
+        env = "UNGOGGLED_SYNC_TIME"
+    )]
+    sync_time: bool,
 }
 
 #[derive(Clone)]
@@ -288,6 +299,11 @@ impl App {
                 .and_then(functionfs::udc_state)
         );
         s["build_id"] = json!(update::running_build());
+        if let Some(clock) = clock::now() {
+            s["time_unix_ms"] = json!(clock.unix_ms);
+            s["time"] = json!(clock.display());
+            s["timezone"] = json!(clock.tz);
+        }
         s
     }
 }
@@ -359,6 +375,7 @@ fn supervise(app: App, args: WorkerArgs) -> thread::JoinHandle<()> {
             if args.cold_accessory {
                 cmd.arg("--cold-accessory");
             }
+            cmd.args(["--sync-time", if args.sync_time { "true" } else { "false" }]);
             cmd.process_group(0)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::inherit());

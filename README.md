@@ -22,6 +22,8 @@ separately.
 - New-release notices with GitHub release notes and download links.
 - Distinct happy/sad beeps from an optional piezo buzzer when the goggles, video or
   HDMI display connect or disconnect, and once at startup.
+- Air-unit recording timestamps from the Pi clock, with the Pi clock itself set from
+  the browser when they drift.
 - Three optional plain GPIO LEDs, one each for goggles, video and HDMI state.
 - An optional GPIO power button that shuts the Pi down when pressed.
 - Reboot and shut down the Pi from the web interface, with a confirmation step.
@@ -45,7 +47,7 @@ The receiver cannot remove overlays already embedded in the incoming image.
 
 The image is based on **Raspberry Pi OS Lite 64-bit, Debian 13 Trixie**.
 
-1. Download `ungoggled-0.3.0-pi4-arm64.img.xz` from the release files.
+1. Download `ungoggled-0.3.1-pi4-arm64.img.xz` from the release files.
 2. Burn it to the microSD card. Recommended writers: Caligula (on linux), Raspberry Pi Imager (on windows)
 3. Skip any OS customization the tool offers: the image already contains its
    network and login setup.

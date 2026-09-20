@@ -1,6 +1,6 @@
 [package]
 name = "ungoggled"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 license = "MIT"
 
@@ -11,7 +11,7 @@ tar = "0.4"
 sha2 = "0.10"
 semver = "1"
 axum = { version = "0.8", features = ["multipart"] }
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 drm = "0.14"
 libc = "0.2"
 rppal = { version = "0.22", default-features = false }

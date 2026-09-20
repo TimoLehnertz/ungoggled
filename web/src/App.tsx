@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Status, Settings, ImageEntry, History } from "./types";
 import { api, headers, usePolling } from "./api";
-import { number, size } from "./format";
+import { number, size, skewLabel } from "./format";
 import { Preview } from "./components/Preview";
 import { Timeline } from "./components/Timeline";
 import { SoftwareUpdate } from "./components/SoftwareUpdate";
@@ -55,6 +55,8 @@ export default function App() {
     null,
   );
   const [powerBusy, setPowerBusy] = useState(false);
+  const [timeBusy, setTimeBusy] = useState(false);
+  const autoSynced = useRef(false);
   useEffect(() => {
     void Promise.all([
       api<Settings>("settings"),
@@ -67,6 +69,61 @@ export default function App() {
       })
       .catch((e) => setError(String(e)));
   }, []);
+  function toast(message: string) {
+    setNotice(message);
+    window.setTimeout(() => {
+      setNotice((current) => (current === message ? "" : current));
+    }, 8000);
+  }
+  async function syncTime(automatic: boolean) {
+    if (!status?.time_unix_ms || timeBusy || updateBusy || connectionError)
+      return;
+    const skew = Date.now() - status.time_unix_ms;
+    setTimeBusy(true);
+    setError("");
+    try {
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      try {
+        await api("system/time", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ unix_ms: Date.now(), timezone }),
+        });
+      } catch (first) {
+        await api("system/time", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ unix_ms: Date.now() }),
+        }).catch(() => {
+          throw first;
+        });
+      }
+      toast(
+        automatic
+          ? `Pi clock was ${skewLabel(skew)}; set to this browser.`
+          : `Pi clock set to this browser.`,
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setTimeBusy(false);
+    }
+  }
+  useEffect(() => {
+    if (
+      autoSynced.current ||
+      status?.time_unix_ms == null ||
+      connectionError ||
+      updateBusy
+    )
+      return;
+    if (Math.abs(Date.now() - status.time_unix_ms) <= 1000) {
+      autoSynced.current = true;
+      return;
+    }
+    autoSynced.current = true;
+    void syncTime(true);
+  }, [status?.time_unix_ms, connectionError, updateBusy]);
   async function run(task: () => Promise<void>) {
     setBusy(true);
     setError("");
@@ -427,7 +484,27 @@ export default function App() {
       />
       <section className="panel system">
         <h2>System</h2>
+        <p className="clock">
+          {status?.time
+            ? `${status.time}${status.timezone ? ` · ${status.timezone}` : ""}`
+            : "Pi time unavailable"}
+        </p>
+        <p className="help">
+          The Pi has no battery-backed clock. Opening this page sets it from
+          your browser when they differ by more than a second.
+        </p>
         <div className="actions">
+          <button
+            disabled={
+              timeBusy ||
+              updateBusy ||
+              !status?.time_unix_ms ||
+              !!connectionError
+            }
+            onClick={() => void syncTime(false)}
+          >
+            {timeBusy ? "Setting time…" : "Sync time from this browser"}
+          </button>
           <button
             disabled={updateBusy || !status || !!connectionError}
             onClick={() => setPowerAction("reboot")}

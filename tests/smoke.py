@@ -30,6 +30,10 @@ with tempfile.TemporaryDirectory(prefix='ungoggled-smoke-') as temp:
             try:request('status');break
             except (urllib.error.URLError,ConnectionError):time.sleep(.05)
         assert rejected('stop',{},'POST',guard=False)==403
+        assert rejected('system/time',{'unix_ms':0},'POST')==400
+        assert rejected('system/time',{'unix_ms':1700000000000,'timezone':'../etc/passwd'},'POST')==400
+        assert rejected('system/time',{'unix_ms':1700000000000},'POST',guard=False)==403
+        assert 'time_unix_ms' in request('status')
         update=request('update')
         assert update['current_version']==request('status')['version']
         assert rejected('update/install',{'id':'1'},'POST',guard=False)==403

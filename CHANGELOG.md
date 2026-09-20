@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1
+
+- Set O3/O4 recording timestamps from the Pi clock after the goggles USB session starts.
+- Show the Pi clock in the web interface and copy the browser time (and timezone) when they differ by more than a second.
+
 ## 0.3.0
 
 - Serve the web interface on standard HTTP port 80.
