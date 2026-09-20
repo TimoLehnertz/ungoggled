@@ -218,6 +218,12 @@ hr {
   gap: 16px;
   align-items: start;
 }
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
 .section-title {
   display: flex;
   align-items: center;
@@ -324,8 +330,54 @@ hr {
 }
 .timeline,
 .wifi,
+.hardware,
+.system,
 .diagnostics {
   margin-top: 16px;
+}
+.hardware-fields {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px 12px;
+  align-items: center;
+  margin-top: 4px;
+}
+.hardware-fields input[type="number"] {
+  width: 90px;
+}
+.hardware-fields label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.hardware-fields .toggle {
+  color: #e5e9ef;
+}
+dialog.confirm {
+  border: 1px solid #303844;
+  border-radius: 9px;
+  background: #191e25;
+  color: #e5e9ef;
+  padding: 20px;
+  max-width: 380px;
+  width: calc(100% - 40px);
+}
+dialog.confirm::backdrop {
+  background: rgba(8, 9, 11, 0.6);
+}
+dialog.confirm h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+dialog.confirm p {
+  margin: 0;
+  font-size: 13px;
+  color: #a4afbf;
+  line-height: 1.6;
+}
+dialog.confirm .actions {
+  margin-top: 18px;
+  justify-content: flex-end;
 }
 .timeline svg {
   display: block;
@@ -512,8 +564,28 @@ footer {
 .software-update .actions a {
   margin-left: 6px;
 }
-.software-update .update-upload {
+.update-upload-zone {
   margin-top: 24px;
+  padding: 16px;
+  border: 1px dashed #3b4552;
+  border-radius: 8px;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+.update-upload-zone .update-upload {
+  margin-top: 0;
+}
+.update-upload-zone .help {
+  margin-top: 12px;
+}
+.update-upload-zone.drag-over {
+  border-color: #60a5fa;
+  background: rgba(96, 165, 250, 0.08);
+}
+.update-upload-zone.disabled {
+  border-style: solid;
+  border-color: #262e38;
 }
 .release-notice {
   display: block;

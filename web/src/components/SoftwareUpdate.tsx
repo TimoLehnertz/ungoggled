@@ -53,6 +53,8 @@ export function SoftwareUpdate({
   const [uploaded, setUploaded] = useState<UpdateState | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState("");
+  const [dragOver, setDragOver] = useState(false);
+  const dragDepth = useRef(0);
   const [pending, setPending] = useState<string | null>(remembered);
   const [sending, setSending] = useState(false);
   const request = useRef<XMLHttpRequest | null>(null);
@@ -93,6 +95,7 @@ export function SoftwareUpdate({
       window.location.reload();
     previousBuild.current = polled.current_build;
   }, [polled, pending, sending]);
+  const uploadDisabled = !polled?.available || busy || progress !== null;
   function upload(file: File) {
     if (file.size > 64 * 1024 * 1024) {
       setError("Update files must be smaller than 64 MiB.");
@@ -202,34 +205,59 @@ export function SoftwareUpdate({
           Web installation is available on a Pi installed with updater support.
         </p>
       )}
-      <div className="actions update-upload">
-        <label
-          className={`button ${!polled?.available || busy || progress !== null ? "disabled" : ""}`}
-        >
-          Upload update
-          <input
-            className="file-input"
-            type="file"
-            accept=".gz,.tgz"
-            disabled={!polled?.available || busy || progress !== null}
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = "";
-              if (file) upload(file);
-            }}
-          />
-        </label>
-        {progress !== null && (
-          <>
-            <progress max={100} value={progress} aria-label="Update upload" />
-            <span>{progress === 100 ? "Checking file…" : `${progress}%`}</span>
-          </>
-        )}
+      <div
+        className={`update-upload-zone ${dragOver ? "drag-over" : ""} ${uploadDisabled ? "disabled" : ""}`}
+        onDragEnter={(e) => {
+          e.preventDefault();
+          if (uploadDisabled) return;
+          dragDepth.current += 1;
+          setDragOver(true);
+        }}
+        onDragOver={(e) => {
+          e.preventDefault();
+        }}
+        onDragLeave={(e) => {
+          e.preventDefault();
+          dragDepth.current = Math.max(0, dragDepth.current - 1);
+          if (dragDepth.current === 0) setDragOver(false);
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          dragDepth.current = 0;
+          setDragOver(false);
+          const file = e.dataTransfer.files?.[0];
+          if (file && !uploadDisabled) upload(file);
+        }}
+      >
+        <div className="actions update-upload">
+          <label className={`button ${uploadDisabled ? "disabled" : ""}`}>
+            Upload update
+            <input
+              className="file-input"
+              type="file"
+              accept=".gz,.tgz"
+              disabled={uploadDisabled}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (file) upload(file);
+              }}
+            />
+          </label>
+          {progress !== null && (
+            <>
+              <progress max={100} value={progress} aria-label="Update upload" />
+              <span>
+                {progress === 100 ? "Checking file…" : `${progress}%`}
+              </span>
+            </>
+          )}
+        </div>
+        <p className="help">
+          Choose the release’s .update.tar.gz file, or drag and drop it here.
+          Video pauses during installation; compatible settings are retained.
+        </p>
       </div>
-      <p className="help">
-        Choose the release’s .update.tar.gz file. Video pauses during
-        installation; compatible settings are retained.
-      </p>
       {state?.phase === "ready" && (
         <div className="update-ready">
           <strong>v{state.version} ready to install</strong>

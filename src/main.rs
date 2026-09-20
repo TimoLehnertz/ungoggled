@@ -4,6 +4,7 @@ mod display;
 mod functionfs;
 mod gadget;
 mod h264;
+mod hardware;
 mod history;
 mod protocol;
 mod settings;
@@ -129,6 +130,7 @@ struct App {
     operations: Arc<Mutex<()>>,
     wifi_busy: Arc<AtomicBool>,
     wifi_error: Arc<Mutex<Option<String>>>,
+    beeper_test: Arc<AtomicBool>,
 }
 
 #[tokio::main]
@@ -200,6 +202,7 @@ async fn main() -> Result<()> {
                 operations: Arc::new(Mutex::new(())),
                 wifi_busy: Arc::new(AtomicBool::new(false)),
                 wifi_error: Arc::new(Mutex::new(None)),
+                beeper_test: Arc::new(AtomicBool::new(false)),
             };
             let listener = tokio::net::TcpListener::bind(&listen).await?;
             let observed = app.clone();
@@ -207,11 +210,19 @@ async fn main() -> Result<()> {
             let renderer = video::start(
                 worker.clone(),
                 app.settings.clone(),
-                report,
+                report.clone(),
                 app.preview.clone(),
                 app.shutdown.clone(),
             )?;
             let supervisor = supervise(app.clone(), worker);
+            let hardware_status = app.clone();
+            let hardware = hardware::start(
+                Arc::new(move || hardware_status.snapshot()),
+                app.settings.clone(),
+                app.shutdown.clone(),
+                app.beeper_test.clone(),
+                report,
+            );
             let samples = app.clone();
             let sampler = tokio::spawn(async move {
                 let mut interval = tokio::time::interval(Duration::from_secs(1));
@@ -237,6 +248,7 @@ async fn main() -> Result<()> {
             app.shutdown.store(true, Ordering::Relaxed);
             let _ = supervisor.join();
             let _ = renderer.join();
+            let _ = hardware.join();
             sampler.abort();
             Ok(())
         }

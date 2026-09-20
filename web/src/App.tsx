@@ -7,6 +7,8 @@ import { Timeline } from "./components/Timeline";
 import { SoftwareUpdate } from "./components/SoftwareUpdate";
 import { useReleases } from "./releases";
 import { WifiPanel } from "./components/WifiPanel";
+import { HardwarePanel } from "./components/HardwarePanel";
+import { ConfirmDialog } from "./components/ConfirmDialog";
 const phases: Record<string, string> = {
   streaming: "Receiving video",
   waiting_video: "Waiting for camera",
@@ -49,6 +51,10 @@ export default function App() {
   const releases = useReleases(status?.version);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [powerAction, setPowerAction] = useState<"reboot" | "shutdown" | null>(
+    null,
+  );
+  const [powerBusy, setPowerBusy] = useState(false);
   useEffect(() => {
     void Promise.all([
       api<Settings>("settings"),
@@ -206,73 +212,79 @@ export default function App() {
         />
       </section>
       <div className="columns">
-        <section className="panel">
-          <div className="section-title">
-            <h2>Preview</h2>
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={settings?.preview_enabled ?? false}
-                disabled={busy || updateBusy || !settings}
-                onChange={(e) => {
-                  if (settings)
-                    void run(() =>
-                      save({ ...settings, preview_enabled: e.target.checked }),
-                    );
-                }}
-              />
-              Live preview
-            </label>
-          </div>
-          <Preview
-            enabled={!!settings?.preview_enabled && !!live}
-            fallback={selected?.url}
-            state={
-              live
-                ? "live"
-                : status?.hdmi === "fallback"
-                  ? "fallback"
-                  : "waiting"
-            }
-          />
-          <div className="preview-caption">
-            <span>
-              {live
-                ? settings?.preview_enabled
-                  ? "640 × 360 · up to 5 fps"
-                  : "Preview disabled"
-                : status?.hdmi === "fallback"
-                  ? "Fallback on HDMI"
-                  : "Waiting for video"}
-            </span>
-          </div>
-          <div className="actions">
-            <button
-              className="primary"
-              disabled={busy || updateBusy || !status || !!connectionError}
-              onClick={() =>
-                void run(async () => {
-                  await api(status?.enabled ? "stop" : "start", {
-                    method: "POST",
-                    headers,
-                  });
-                })
+        <div className="column">
+          <section className="panel">
+            <div className="section-title">
+              <h2>Preview</h2>
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  checked={settings?.preview_enabled ?? false}
+                  disabled={busy || updateBusy || !settings}
+                  onChange={(e) => {
+                    if (settings)
+                      void run(() =>
+                        save({
+                          ...settings,
+                          preview_enabled: e.target.checked,
+                        }),
+                      );
+                  }}
+                />
+                Live preview
+              </label>
+            </div>
+            <Preview
+              enabled={!!settings?.preview_enabled && !!live}
+              fallback={selected?.url}
+              state={
+                live
+                  ? "live"
+                  : status?.hdmi === "fallback"
+                    ? "fallback"
+                    : "waiting"
               }
-            >
-              {status?.enabled ? "Stop receiver" : "Start receiver"}
-            </button>
-            <button
-              disabled={busy || updateBusy || !status || !!connectionError}
-              onClick={() =>
-                void run(async () => {
-                  await api("restart", { method: "POST", headers });
-                })
-              }
-            >
-              Reconnect goggles
-            </button>
-          </div>
-        </section>
+            />
+            <div className="preview-caption">
+              <span>
+                {live
+                  ? settings?.preview_enabled
+                    ? "640 × 360 · up to 5 fps"
+                    : "Preview disabled"
+                  : status?.hdmi === "fallback"
+                    ? "Fallback on HDMI"
+                    : "Waiting for video"}
+              </span>
+            </div>
+            <div className="actions">
+              <button
+                className="primary"
+                disabled={busy || updateBusy || !status || !!connectionError}
+                onClick={() =>
+                  void run(async () => {
+                    await api(status?.enabled ? "stop" : "start", {
+                      method: "POST",
+                      headers,
+                    });
+                  })
+                }
+              >
+                {status?.enabled ? "Stop receiver" : "Start receiver"}
+              </button>
+              <button
+                disabled={busy || updateBusy || !status || !!connectionError}
+                onClick={() =>
+                  void run(async () => {
+                    await api("restart", { method: "POST", headers });
+                  })
+                }
+              >
+                Reconnect goggles
+              </button>
+            </div>
+          </section>
+          <Timeline history={history} />
+        </div>
         <section className="panel settings">
           <h2>HDMI</h2>
           <form
@@ -407,8 +419,60 @@ export default function App() {
           </p>
         </section>
       </div>
-      <Timeline history={history} />
       <WifiPanel notify={setNotice} disabled={updateBusy} />
+      <HardwarePanel
+        settings={settings}
+        onSave={save}
+        disabled={busy || updateBusy}
+      />
+      <section className="panel system">
+        <h2>System</h2>
+        <div className="actions">
+          <button
+            disabled={updateBusy || !status || !!connectionError}
+            onClick={() => setPowerAction("reboot")}
+          >
+            Reboot Pi
+          </button>
+          <button
+            disabled={updateBusy || !status || !!connectionError}
+            onClick={() => setPowerAction("shutdown")}
+          >
+            Shut down Pi
+          </button>
+        </div>
+      </section>
+      <ConfirmDialog
+        open={powerAction !== null}
+        busy={powerBusy}
+        title={
+          powerAction === "reboot" ? "Reboot the Pi?" : "Shut down the Pi?"
+        }
+        body={
+          powerAction === "reboot"
+            ? "Video and the web interface stop until the Pi finishes restarting."
+            : "Video and the web interface stop. Power-cycle the Pi to turn it back on."
+        }
+        confirmLabel={powerAction === "reboot" ? "Reboot" : "Shut down"}
+        onCancel={() => setPowerAction(null)}
+        onConfirm={() =>
+          void run(async () => {
+            setPowerBusy(true);
+            try {
+              await api(
+                `system/${powerAction === "reboot" ? "reboot" : "shutdown"}`,
+                {
+                  method: "POST",
+                  headers,
+                },
+              );
+              setPowerAction(null);
+            } finally {
+              setPowerBusy(false);
+            }
+          })
+        }
+      />
       <SoftwareUpdate
         releases={releases}
         showRelease={showRelease}
@@ -432,6 +496,10 @@ export default function App() {
           <dd>{number(status?.input_nominal_fps)}</dd>
           <dt>Last event</dt>
           <dd>{status?.message ?? "—"}</dd>
+          <dt>Beeper</dt>
+          <dd>{status?.beeper_error ?? "—"}</dd>
+          <dt>Power button</dt>
+          <dd>{status?.power_button_error ?? "—"}</dd>
         </dl>
         <a href="/api/diagnostics" target="_blank" rel="noreferrer">
           Hardware report

@@ -22,11 +22,21 @@ export type Status = {
   decoder_starts?: number;
   message?: string;
   display_error?: string;
+  beeper_error?: string | null;
+  power_button_error?: string | null;
+  goggles_led_error?: string | null;
+  video_led_error?: string | null;
+  hdmi_led_error?: string | null;
 };
 export type Settings = {
   hdmi_mode: string;
   fallback_image: string | null;
   preview_enabled: boolean;
+  beeper_pin: number | null;
+  power_button_pin: number | null;
+  goggles_led_pin: number | null;
+  video_led_pin: number | null;
+  hdmi_led_pin: number | null;
 };
 export type ImageEntry = { id: string; url: string };
 export type Sample = {

@@ -20,6 +20,11 @@ separately.
 - Automatic startup and recovery after USB disconnects or stream changes.
 - Web updates with settings retention, startup checks and automatic rollback.
 - New-release notices with GitHub release notes and download links.
+- Distinct happy/sad beeps from an optional piezo buzzer when the goggles, video or
+  HDMI display connect or disconnect, and once at startup.
+- Three optional plain GPIO LEDs, one each for goggles, video and HDMI state.
+- An optional GPIO power button that shuts the Pi down when pressed.
+- Reboot and shut down the Pi from the web interface, with a confirmation step.
 
 ## Hardware and wiring
 
@@ -99,6 +104,20 @@ when the application restarts; it does not write continuously to the SD card.
 using those credentials. HDMI reception continues during the network change.
 The web interface is intended for your private local network and has no separate
 login; do not expose port 80 to the Internet.
+
+**Beeper, LEDs & power button:** all optional. Goggles, video and HDMI each get a
+distinct happy tone when they connect and a distinct sad tone when they disconnect,
+plus one chime at startup. The power button defaults to the **NuclearHazard V5**
+hat's GPIO19 (shuts the Pi down when pressed). That hat's own beeper is wired to
+its onboard STM32 co-processor, not a Pi GPIO pin, so there is no default beeper
+pin — wire a separate piezo buzzer to any free GPIO and set its pin here. Once
+applied, **Test buzzer** plays a short beep to confirm the wiring. The three status
+LEDs are plain (non-addressable) LEDs, each wired to its own GPIO with a series
+resistor; each simply lights up while its own state (goggles attached, video live,
+HDMI connected) is true, and turns off otherwise — no special driver needed.
+
+**System:** reboot or shut down the Pi from the web interface; both ask for
+confirmation first.
 
 ## Update without reflashing
 
