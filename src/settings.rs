@@ -13,9 +13,7 @@ pub struct Settings {
     pub hdmi_mode: String,
     pub fallback_image: Option<String>,
     pub preview_enabled: bool,
-    /// BCM GPIO pin driving a piezo beeper. No default: the NuclearHazard hat's
-    /// onboard beeper is wired to its own STM32 co-processor, not a Pi GPIO, so
-    /// it needs a separately wired piezo before a pin means anything.
+    /// BCM GPIO pin driving a piezo beeper; defaults to GPIO6.
     pub beeper_pin: Option<u8>,
     /// BCM GPIO pin for a shutdown button; defaults to the NuclearHazard hat's
     /// power button (GPIO19, active low).
@@ -33,11 +31,11 @@ impl Default for Settings {
             hdmi_mode: "auto".into(),
             fallback_image: Some("no-signal.png".into()),
             preview_enabled: true,
-            beeper_pin: None,
+            beeper_pin: Some(crate::hardware::DEFAULT_BEEPER_PIN),
             power_button_pin: Some(crate::hardware::DEFAULT_POWER_BUTTON_PIN),
-            goggles_led_pin: None,
-            video_led_pin: None,
-            hdmi_led_pin: None,
+            goggles_led_pin: Some(crate::hardware::DEFAULT_GOGGLES_LED_PIN),
+            video_led_pin: Some(crate::hardware::DEFAULT_VIDEO_LED_PIN),
+            hdmi_led_pin: Some(crate::hardware::DEFAULT_HDMI_LED_PIN),
         }
     }
 }
@@ -260,6 +258,21 @@ mod tests {
         for s in ["3840x2160@60", "1920x1080@0", "1920x1080@600", "auto\n"] {
             assert!(!valid_mode(s));
         }
+    }
+    #[test]
+    fn default_gpio_pins() {
+        let s = Settings::default();
+        assert_eq!(s.beeper_pin, Some(crate::hardware::DEFAULT_BEEPER_PIN));
+        assert_eq!(
+            s.power_button_pin,
+            Some(crate::hardware::DEFAULT_POWER_BUTTON_PIN)
+        );
+        assert_eq!(
+            s.goggles_led_pin,
+            Some(crate::hardware::DEFAULT_GOGGLES_LED_PIN)
+        );
+        assert_eq!(s.video_led_pin, Some(crate::hardware::DEFAULT_VIDEO_LED_PIN));
+        assert_eq!(s.hdmi_led_pin, Some(crate::hardware::DEFAULT_HDMI_LED_PIN));
     }
     #[test]
     fn rejects_out_of_range_and_conflicting_pins() {

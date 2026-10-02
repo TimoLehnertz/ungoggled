@@ -4,6 +4,7 @@
 
 - Set O3/O4 recording timestamps from the Pi clock after the goggles USB session starts.
 - Show the Pi clock in the web interface and copy the browser time (and timezone) when they differ by more than a second.
+- Default GPIO pins: piezo 6, shutdown button 19, goggles LED 17, video LED 23, HDMI LED 24.
 
 ## 0.3.0
 

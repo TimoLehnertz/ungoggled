@@ -36,30 +36,35 @@ const FIELDS = [
   {
     enabled: "beeperEnabled",
     pin: "beeperPin",
+    defaultPin: 6,
     label: "Piezo beeper on GPIO",
     error: "Beeper pin must be a GPIO number between 2 and 27.",
   },
   {
     enabled: "buttonEnabled",
     pin: "buttonPin",
+    defaultPin: 19,
     label: "Shutdown button on GPIO",
     error: "Power button pin must be a GPIO number between 2 and 27.",
   },
   {
     enabled: "gogglesLedEnabled",
     pin: "gogglesLedPin",
+    defaultPin: 17,
     label: "Goggles LED on GPIO",
     error: "Goggles LED pin must be a GPIO number between 2 and 27.",
   },
   {
     enabled: "videoLedEnabled",
     pin: "videoLedPin",
+    defaultPin: 23,
     label: "Video LED on GPIO",
     error: "Video LED pin must be a GPIO number between 2 and 27.",
   },
   {
     enabled: "hdmiLedEnabled",
     pin: "hdmiLedPin",
+    defaultPin: 24,
     label: "HDMI LED on GPIO",
     error: "HDMI LED pin must be a GPIO number between 2 and 27.",
   },
@@ -131,12 +136,11 @@ export function HardwarePanel({
     <section className="panel hardware">
       <h2>Beeper, LEDs &amp; power button</h2>
       <p className="help">
-        GPIO pins use BCM numbering. The power button defaults to the
-        NuclearHazard V5 hat's GPIO19. Its onboard beeper is wired to its own
-        STM32 co-processor, not a Pi GPIO pin, so there is no default beeper pin
-        — wire a separate piezo buzzer and choose its pin here. The three LEDs
-        are plain (non-addressable) LEDs, each wired to its own GPIO with a
-        series resistor; each simply lights up while its state is true.
+        GPIO pins use BCM numbering. Defaults are piezo GPIO6, shutdown button
+        GPIO19 (NuclearHazard V5 hat), goggles LED GPIO17, video LED GPIO23 and
+        HDMI LED GPIO24. The three LEDs are plain (non-addressable) LEDs, each
+        wired to its own GPIO with a series resistor; each simply lights up
+        while its state is true.
       </p>
       <div className="hardware-fields">
         {FIELDS.map((f) => (
@@ -147,7 +151,13 @@ export function HardwarePanel({
                 checked={draft[f.enabled]}
                 disabled={disabled}
                 onChange={(e) =>
-                  setDraft({ ...draft, [f.enabled]: e.target.checked })
+                  setDraft({
+                    ...draft,
+                    [f.enabled]: e.target.checked,
+                    ...(e.target.checked && draft[f.pin] === ""
+                      ? { [f.pin]: String(f.defaultPin) }
+                      : {}),
+                  })
                 }
               />
               {f.label}

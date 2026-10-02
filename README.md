@@ -109,14 +109,13 @@ login; do not expose port 80 to the Internet.
 
 **Beeper, LEDs & power button:** all optional. Goggles, video and HDMI each get a
 distinct happy tone when they connect and a distinct sad tone when they disconnect,
-plus one chime at startup. The power button defaults to the **NuclearHazard V5**
-hat's GPIO19 (shuts the Pi down when pressed). That hat's own beeper is wired to
-its onboard STM32 co-processor, not a Pi GPIO pin, so there is no default beeper
-pin — wire a separate piezo buzzer to any free GPIO and set its pin here. Once
-applied, **Test buzzer** plays a short beep to confirm the wiring. The three status
-LEDs are plain (non-addressable) LEDs, each wired to its own GPIO with a series
-resistor; each simply lights up while its own state (goggles attached, video live,
-HDMI connected) is true, and turns off otherwise — no special driver needed.
+plus one chime at startup. Defaults are piezo **GPIO6**, shutdown button **GPIO19**
+(NuclearHazard V5 hat, shuts the Pi down when pressed), goggles LED **GPIO17**,
+video LED **GPIO23** and HDMI LED **GPIO24**. Once applied, **Test buzzer** plays a
+short beep to confirm the wiring. The three status LEDs are plain (non-addressable)
+LEDs, each wired to its own GPIO with a series resistor; each simply lights up
+while its own state (goggles attached, video live, HDMI connected) is true, and
+turns off otherwise — no special driver needed.
 
 **System:** reboot or shut down the Pi from the web interface; both ask for
 confirmation first.

@@ -1,12 +1,9 @@
-//! Piezo beeper and the power/shutdown button.
+//! Piezo beeper, status LEDs and the power/shutdown button.
 //!
-//! Defaults match the NuclearHazard V5 hat: GPIO19 for its power button
-//! (active low, matching the pin the RotorHazard installer wires for
-//! "nuclear" boards). The hat's own beeper is soldered to its onboard STM32
-//! co-processor and driven over the RotorHazard node protocol on the UART
-//! pins (GPIO14/15), not a plain Pi GPIO line, so there is no default beeper
-//! pin: wire a separate piezo to any free GPIO and configure it in the web
-//! interface.
+//! Default BCM pins: piezo GPIO6, shutdown button GPIO19 (NuclearHazard V5 hat,
+//! active low), goggles LED GPIO17, video LED GPIO23, HDMI LED GPIO24. The hat's
+//! own beeper is soldered to its onboard STM32 co-processor, so GPIO6 assumes a
+//! separately wired piezo.
 use crate::settings::Store;
 use rppal::gpio::{Gpio, InputPin, OutputPin};
 use serde_json::Value;
@@ -20,7 +17,11 @@ use std::{
     time::{Duration, Instant},
 };
 
+pub const DEFAULT_BEEPER_PIN: u8 = 6;
 pub const DEFAULT_POWER_BUTTON_PIN: u8 = 19;
+pub const DEFAULT_GOGGLES_LED_PIN: u8 = 17;
+pub const DEFAULT_VIDEO_LED_PIN: u8 = 23;
+pub const DEFAULT_HDMI_LED_PIN: u8 = 24;
 
 pub type StatusFn = Arc<dyn Fn() -> Value + Send + Sync>;
 
