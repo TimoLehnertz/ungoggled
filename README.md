@@ -10,7 +10,7 @@ separately.
 ## Features
 
 - Hardware-decoded video over HDMI, with automatic 1080p mode selection.
-- Configurable HDMI resolution and refresh rate from the display's supported modes.
+- Configurable HDMI resolution, refresh rate and progressive or interlaced scan from the display's supported modes.
 - A selectable fallback image when video is lost or the receiver is stopped.
 - Browser preview at up to **640 × 360, 5 fps**, independently switchable.
 - Incoming resolution, measured camera fps, HDMI refresh rate and rendered fps.
@@ -90,8 +90,10 @@ preserved aspect ratio. Up to 16 images can be stored. The selection survives
 reboots; a “No signal” image is included.
 
 **HDMI mode:** automatic mode prefers progressive 1080p at up to 60 Hz. You can
-choose another advertised mode up to 1080p60. Applying a mode briefly interrupts
-output. A 60 Hz HDMI signal may carry a 30 fps camera feed: the UI shows those
+choose any other mode the display advertises, including interlaced modes such as
+1080i for equipment that requires them. Interlaced modes are listed by field
+rate, so 1080i60 carries 30 full frames per second. Video is scaled to the
+selected resolution. Applying a mode briefly interrupts output. A 60 Hz HDMI signal may carry a 30 fps camera feed: the UI shows those
 rates separately. It does not increase the camera frame rate.
 
 **Preview:** this is a small live JPEG preview for framing and monitoring, not a

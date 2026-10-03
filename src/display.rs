@@ -35,19 +35,25 @@ pub struct Display {
     // Keep it open across decoder restarts; kmssink owns only the video overlay.
 }
 
+fn interlaced(m: &Mode) -> bool {
+    m.flags().contains(ModeFlags::INTERLACE)
+}
+
+/// `1920x1080@60` for progressive and `1920x1080@60i` for interlaced modes,
+/// whose refresh rate is the field rate.
 fn mode_id(m: &Mode) -> String {
-    format!("{}x{}@{}", m.size().0, m.size().1, m.vrefresh())
+    let scan = if interlaced(m) { "i" } else { "" };
+    format!("{}x{}@{}{scan}", m.size().0, m.size().1, m.vrefresh())
 }
 
 fn select_mode(modes: &[Mode], requested: &str) -> Option<Mode> {
     if requested != "auto"
-        && let Some(m) = modes
-            .iter()
-            .find(|m| mode_id(m) == requested && !m.flags().contains(ModeFlags::INTERLACE))
+        && let Some(m) = modes.iter().find(|m| mode_id(m) == requested)
     {
         return Some(*m);
     }
-    let progressive = |m: &&Mode| !m.flags().contains(ModeFlags::INTERLACE);
+    // Automatic selection never picks an interlaced mode.
+    let progressive = |m: &&Mode| !interlaced(m);
     modes
         .iter()
         .filter(progressive)
@@ -133,18 +139,8 @@ impl Display {
                 let release = card.release_master_lock();
                 result.context("Set HDMI mode and fallback")?;
                 release?;
-                let modes: Vec<_> = con
-                    .modes()
-                    .iter()
-                    .filter(|m| {
-                        m.size().0 <= 1920
-                            && m.size().1 <= 1080
-                            && m.vrefresh() <= 60
-                            && !m.flags().contains(ModeFlags::INTERLACE)
-                    })
-                    .map(mode_id)
-                    .collect();
-                let info = serde_json::json!({"hdmi_width":mode.size().0,"hdmi_height":mode.size().1,"hdmi_hz":mode.vrefresh(),"hdmi_modes":modes,"hdmi_requested_mode":mode_request});
+                let modes: Vec<_> = con.modes().iter().map(mode_id).collect();
+                let info = serde_json::json!({"hdmi_width":mode.size().0,"hdmi_height":mode.size().1,"hdmi_hz":mode.vrefresh(),"hdmi_interlaced":interlaced(&mode),"hdmi_modes":modes,"hdmi_requested_mode":mode_request});
                 let card = Arc::new(card);
                 let upgrade = Arc::new(AtomicBool::new(false));
                 let stop = Arc::new(AtomicBool::new(false));

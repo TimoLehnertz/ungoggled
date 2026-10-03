@@ -1,6 +1,13 @@
 export const number = (v: number | null | undefined, digits = 1) =>
   v == null ? "—" : v.toFixed(digits);
 export const size = (w?: number, h?: number) => (w && h ? `${w} × ${h}` : "—");
+export const scan = (interlaced?: boolean) => (interlaced ? " interlaced" : "");
+// "1920x1080@60i" → "1920 × 1080 · 60 Hz interlaced"
+export function modeLabel(mode: string): string {
+  const m = /^(\d+)x(\d+)@(\d+)(i?)$/.exec(mode);
+  if (!m) return mode;
+  return `${m[1]} × ${m[2]} · ${m[3]} Hz${scan(m[4] === "i")}`;
+}
 export function skewLabel(deltaMs: number): string {
   const behind = deltaMs > 0;
   const sec = Math.max(1, Math.round(Math.abs(deltaMs) / 1000));

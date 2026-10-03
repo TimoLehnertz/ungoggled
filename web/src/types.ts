@@ -14,6 +14,7 @@ export type Status = {
   hdmi_width?: number;
   hdmi_height?: number;
   hdmi_hz?: number;
+  hdmi_interlaced?: boolean;
   hdmi_modes?: string[];
   temperature_c?: number;
   uptime_seconds: number;

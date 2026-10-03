@@ -125,12 +125,13 @@ pub fn valid_mode(mode: &str) -> bool {
     let Some((size, hz)) = mode.split_once('@') else {
         return false;
     };
+    let hz = hz.strip_suffix('i').unwrap_or(hz);
     let Some((w, h)) = size.split_once('x') else {
         return false;
     };
     match (w.parse::<u32>(), h.parse::<u32>(), hz.parse::<u32>()) {
         (Ok(w), Ok(h), Ok(hz)) => {
-            (320..=1920).contains(&w) && (240..=1080).contains(&h) && (24..=60).contains(&hz)
+            (320..=7680).contains(&w) && (200..=4320).contains(&h) && (1..=240).contains(&hz)
         }
         _ => false,
     }
@@ -254,8 +255,21 @@ mod tests {
             assert!(!valid_id(s));
         }
         assert!(valid_id("fallback-123.png"));
-        assert!(valid_mode("1920x1080@60"));
-        for s in ["3840x2160@60", "1920x1080@0", "1920x1080@600", "auto\n"] {
+        for s in [
+            "1920x1080@60",
+            "1920x1080@60i",
+            "3840x2160@30",
+            "720x576@50i",
+        ] {
+            assert!(valid_mode(s));
+        }
+        for s in [
+            "1920x1080@0",
+            "1920x1080@600",
+            "1920x1080@60p",
+            "1920x1080@i",
+            "auto\n",
+        ] {
             assert!(!valid_mode(s));
         }
     }

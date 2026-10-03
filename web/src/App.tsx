@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Status, Settings, ImageEntry, History } from "./types";
 import { api, headers, usePolling } from "./api";
-import { number, size, skewLabel } from "./format";
+import { modeLabel, number, scan, size, skewLabel } from "./format";
 import { Preview } from "./components/Preview";
 import { Timeline } from "./components/Timeline";
 import { SoftwareUpdate } from "./components/SoftwareUpdate";
@@ -211,7 +211,7 @@ export default function App() {
             detail={
               known
                 ? status.hdmi_connected
-                  ? `Display attached · ${size(status.hdmi_width, status.hdmi_height)} at ${number(status.hdmi_hz, 0)} Hz`
+                  ? `Display attached · ${size(status.hdmi_width, status.hdmi_height)} at ${number(status.hdmi_hz, 0)} Hz${scan(status.hdmi_interlaced)}`
                   : "No display detected on HDMI0"
                 : "Receiver unreachable"
             }
@@ -256,7 +256,7 @@ export default function App() {
         <Metric
           title="HDMI output"
           primary={size(status?.hdmi_width, status?.hdmi_height)}
-          secondary={`${number(status?.hdmi_hz, 0)} Hz · ${status?.hdmi === "playing" ? number(status?.output_fps) : "0"} rendered fps`}
+          secondary={`${number(status?.hdmi_hz, 0)} Hz${scan(status?.hdmi_interlaced)} · ${status?.hdmi === "playing" ? number(status?.output_fps) : "0"} rendered fps`}
         />
         <Metric
           title="Pi temperature"
@@ -360,11 +360,11 @@ export default function App() {
               >
                 <option value="auto">Automatic · prefer 1080p</option>
                 {!modes.includes(mode) && mode !== "auto" && (
-                  <option value={mode}>{mode} (saved)</option>
+                  <option value={mode}>{modeLabel(mode)} (saved)</option>
                 )}
                 {modes.map((m) => (
                   <option key={m} value={m}>
-                    {m.replace("x", " × ").replace("@", " · ")} Hz
+                    {modeLabel(m)}
                   </option>
                 ))}
               </select>
