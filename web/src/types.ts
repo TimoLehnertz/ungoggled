@@ -31,6 +31,7 @@ export type Status = {
   time_unix_ms?: number;
   time?: string;
   timezone?: string;
+  time_synced?: boolean;
 };
 export type Settings = {
   hdmi_mode: string;
@@ -41,6 +42,7 @@ export type Settings = {
   goggles_led_pin: number | null;
   video_led_pin: number | null;
   hdmi_led_pin: number | null;
+  beep_until_time_synced: boolean;
 };
 export type ImageEntry = { id: string; url: string };
 export type Sample = {

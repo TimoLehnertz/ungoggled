@@ -13,6 +13,7 @@ type Draft = {
   videoLedPin: string;
   hdmiLedEnabled: boolean;
   hdmiLedPin: string;
+  beepUntilTimeSynced: boolean;
 };
 function draftOf(s: Settings): Draft {
   return {
@@ -26,6 +27,7 @@ function draftOf(s: Settings): Draft {
     videoLedPin: s.video_led_pin != null ? String(s.video_led_pin) : "",
     hdmiLedEnabled: s.hdmi_led_pin != null,
     hdmiLedPin: s.hdmi_led_pin != null ? String(s.hdmi_led_pin) : "",
+    beepUntilTimeSynced: s.beep_until_time_synced,
   };
 }
 function pin(value: string): number | null {
@@ -114,6 +116,7 @@ export function HardwarePanel({
           : null,
         video_led_pin: draft.videoLedEnabled ? pin(draft.videoLedPin) : null,
         hdmi_led_pin: draft.hdmiLedEnabled ? pin(draft.hdmiLedPin) : null,
+        beep_until_time_synced: draft.beepUntilTimeSynced,
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -174,6 +177,17 @@ export function HardwarePanel({
           </Fragment>
         ))}
       </div>
+      <label className="toggle">
+        <input
+          type="checkbox"
+          checked={draft.beepUntilTimeSynced}
+          disabled={disabled}
+          onChange={(e) =>
+            setDraft({ ...draft, beepUntilTimeSynced: e.target.checked })
+          }
+        />
+        Beep every 5 seconds until the clock is synced
+      </label>
       <div className="actions">
         <button
           disabled={disabled || saving || !dirty}
@@ -204,7 +218,9 @@ export function HardwarePanel({
         Goggles, video and HDMI each beep when they connect or disconnect; the
         receiver also beeps once at startup. Happy and sad tones are
         distinguishable, as are the three events. Each LED lights up while its
-        own state is true and turns off otherwise.
+        own state is true and turns off otherwise. The clock reminder beeps
+        until a browser has set the Pi clock (or NTP has synced it) since boot,
+        so recordings get correct timestamps.
       </p>
     </section>
   );

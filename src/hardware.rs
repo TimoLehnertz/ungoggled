@@ -123,6 +123,12 @@ const BUTTON_PRESSED: Pattern = &[Tone {
     on_ms: 120,
     off_ms: 0,
 }];
+const TIME_UNSYNCED: Pattern = &[Tone {
+    hz: 2093,
+    on_ms: 40,
+    off_ms: 0,
+}];
+const TIME_UNSYNCED_INTERVAL: Duration = Duration::from_secs(5);
 const TEST: Pattern = &[
     Tone {
         hz: 880,
@@ -159,6 +165,9 @@ fn video_live(status: &Value) -> bool {
 }
 fn hdmi_connected(status: &Value) -> bool {
     status["hdmi_connected"].as_bool().unwrap_or(false)
+}
+fn time_synced(status: &Value) -> bool {
+    status["time_synced"].as_bool().unwrap_or(false)
 }
 
 // Opens (or drops) a pin when the desired GPIO changes, reporting the
@@ -220,6 +229,7 @@ pub fn start(
         let mut low_ticks = 0u8;
         let mut shutdown_triggered = false;
         let mut booted = false;
+        let mut last_unsynced_beep = Instant::now();
         while !shutdown.load(Ordering::Relaxed) {
             let settings = store.get();
             if settings.beeper_pin != beeper_want {
@@ -294,6 +304,16 @@ pub fn start(
                 if prev_hdmi.is_some_and(|prev| prev != hdmi) {
                     play(pin, if hdmi { HDMI_UP } else { HDMI_DOWN });
                 }
+            }
+            if settings.beep_until_time_synced && !time_synced(&s) {
+                if last_unsynced_beep.elapsed() >= TIME_UNSYNCED_INTERVAL {
+                    last_unsynced_beep = Instant::now();
+                    if let Some(pin) = &mut beeper {
+                        play(pin, TIME_UNSYNCED);
+                    }
+                }
+            } else {
+                last_unsynced_beep = Instant::now();
             }
             prev_goggles = Some(goggles);
             prev_video = Some(video);
@@ -397,5 +417,7 @@ mod tests {
         ));
         assert!(hdmi_connected(&json!({"hdmi_connected":true})));
         assert!(!hdmi_connected(&json!({})));
+        assert!(time_synced(&json!({"time_synced":true})));
+        assert!(!time_synced(&json!({})));
     }
 }

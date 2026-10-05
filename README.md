@@ -117,7 +117,10 @@ video LED **GPIO23** and HDMI LED **GPIO24**. Once applied, **Test buzzer** play
 short beep to confirm the wiring. The three status LEDs are plain (non-addressable)
 LEDs, each wired to its own GPIO with a series resistor; each simply lights up
 while its own state (goggles attached, video live, HDMI connected) is true, and
-turns off otherwise — no special driver needed.
+turns off otherwise — no special driver needed. **Beep every 5 seconds until the
+clock is synced** (off by default) keeps chirping after boot until a browser has
+opened the web interface (or NTP has synced the clock), so you don't record with a
+wrong date.
 
 **System:** reboot or shut down the Pi from the web interface; both ask for
 confirmation first.

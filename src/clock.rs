@@ -78,6 +78,14 @@ fn tz_id() -> String {
     "UTC".into()
 }
 
+/// True once the kernel clock is disciplined by NTP (e.g. on a Wi-Fi client
+/// with Internet access); `adjtimex` reports TIME_ERROR while unsynchronized.
+pub fn ntp_synchronized() -> bool {
+    let mut tx = unsafe { std::mem::zeroed::<libc::timex>() };
+    let state = unsafe { libc::adjtimex(&mut tx) };
+    state >= 0 && state != libc::TIME_ERROR
+}
+
 pub fn valid_timezone(tz: &str) -> bool {
     if tz.is_empty() || tz.len() > 64 || tz.contains("..") || Path::new(tz).is_absolute() {
         return false;

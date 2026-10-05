@@ -24,6 +24,8 @@ pub struct Settings {
     pub video_led_pin: Option<u8>,
     /// BCM GPIO pin driving a plain LED that lights while an HDMI display is connected.
     pub hdmi_led_pin: Option<u8>,
+    /// Beep every few seconds until the clock has been synced once since boot.
+    pub beep_until_time_synced: bool,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -36,6 +38,7 @@ impl Default for Settings {
             goggles_led_pin: Some(crate::hardware::DEFAULT_GOGGLES_LED_PIN),
             video_led_pin: Some(crate::hardware::DEFAULT_VIDEO_LED_PIN),
             hdmi_led_pin: Some(crate::hardware::DEFAULT_HDMI_LED_PIN),
+            beep_until_time_synced: false,
         }
     }
 }
@@ -208,6 +211,10 @@ pub fn migrate(data_dir: &Path, output: &Path) -> Result<Vec<String>> {
                 true
             }
             "hdmi_led_pin" => pin(value).map(|v| next.hdmi_led_pin = Some(v)).is_some(),
+            "beep_until_time_synced" => value
+                .as_bool()
+                .map(|v| next.beep_until_time_synced = v)
+                .is_some(),
             _ => false,
         };
         if !accepted {
@@ -285,7 +292,10 @@ mod tests {
             s.goggles_led_pin,
             Some(crate::hardware::DEFAULT_GOGGLES_LED_PIN)
         );
-        assert_eq!(s.video_led_pin, Some(crate::hardware::DEFAULT_VIDEO_LED_PIN));
+        assert_eq!(
+            s.video_led_pin,
+            Some(crate::hardware::DEFAULT_VIDEO_LED_PIN)
+        );
         assert_eq!(s.hdmi_led_pin, Some(crate::hardware::DEFAULT_HDMI_LED_PIN));
     }
     #[test]
@@ -321,13 +331,15 @@ mod tests {
     #[test]
     fn migration_preserves_gpio_pins_and_defaults_conflicts() {
         let f = crate::update::tests::Fixture::new();
-        let source = br#"{"beeper_pin":6,"power_button_pin":19}"#;
+        let source = br#"{"beeper_pin":6,"power_button_pin":19,"beep_until_time_synced":true}"#;
         fs::write(f.0.join("settings.json"), source).unwrap();
         let output = f.0.join("migrated.json");
         let warnings = migrate(&f.0, &output).unwrap();
         assert!(warnings.is_empty());
         let migrated: Settings = serde_json::from_slice(&fs::read(&output).unwrap()).unwrap();
         assert_eq!(migrated.beeper_pin, Some(6));
+        assert!(migrated.beep_until_time_synced);
+        assert!(!Settings::default().beep_until_time_synced);
 
         // A settings.json from a release that still had the LED feature
         // carries fields this schema no longer recognizes; migration should

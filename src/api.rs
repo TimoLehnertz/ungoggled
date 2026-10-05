@@ -73,7 +73,9 @@ async fn set_time(
     Json(c): Json<ClockChange>,
 ) -> ApiResult<Json<Value>> {
     guard(&h)?;
+    let worker = a.clone();
     tokio::task::spawn_blocking(move || {
+        let a = worker;
         let _lock = a.operations.lock().unwrap();
         crate::update::api::ensure_idle()?;
         crate::clock::apply(c.unix_ms, c.timezone.as_deref())
@@ -81,6 +83,7 @@ async fn set_time(
     .await
     .map_err(bad)?
     .map_err(bad)?;
+    a.time_synced.store(true, Ordering::Relaxed);
     let clock = crate::clock::now();
     Ok(Json(json!({
         "saved": true,

@@ -4,6 +4,7 @@
 
 - Set O3/O4 recording timestamps from the Pi clock after the goggles USB session starts.
 - Show the Pi clock in the web interface and copy the browser time (and timezone) when they differ by more than a second.
+- Optional setting (off by default) to beep every 5 seconds until the Pi clock has been synced from a browser or NTP since boot.
 - Default GPIO pins: piezo 6, shutdown button 19, goggles LED 17, video LED 23, HDMI LED 24.
 - Offer every HDMI mode the display advertises, including interlaced modes and modes above 1080p60. Automatic mode still prefers progressive 1080p.
 

@@ -142,6 +142,8 @@ struct App {
     wifi_busy: Arc<AtomicBool>,
     wifi_error: Arc<Mutex<Option<String>>>,
     beeper_test: Arc<AtomicBool>,
+    /// Latched once the clock has been set from a browser or NTP since boot.
+    time_synced: Arc<AtomicBool>,
 }
 
 #[tokio::main]
@@ -214,6 +216,7 @@ async fn main() -> Result<()> {
                 wifi_busy: Arc::new(AtomicBool::new(false)),
                 wifi_error: Arc::new(Mutex::new(None)),
                 beeper_test: Arc::new(AtomicBool::new(false)),
+                time_synced: Arc::new(AtomicBool::new(false)),
             };
             let listener = tokio::net::TcpListener::bind(&listen).await?;
             let observed = app.clone();
@@ -304,6 +307,10 @@ impl App {
             s["time"] = json!(clock.display());
             s["timezone"] = json!(clock.tz);
         }
+        if !self.time_synced.load(Ordering::Relaxed) && clock::ntp_synchronized() {
+            self.time_synced.store(true, Ordering::Relaxed);
+        }
+        s["time_synced"] = json!(self.time_synced.load(Ordering::Relaxed));
         s
     }
 }

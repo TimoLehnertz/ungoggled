@@ -75,7 +75,7 @@ export default function App() {
       setNotice((current) => (current === message ? "" : current));
     }, 8000);
   }
-  async function syncTime(automatic: boolean) {
+  async function syncTime(automatic: boolean, quiet = false) {
     if (!status?.time_unix_ms || timeBusy || updateBusy || connectionError)
       return;
     const skew = Date.now() - status.time_unix_ms;
@@ -98,11 +98,12 @@ export default function App() {
           throw first;
         });
       }
-      toast(
-        automatic
-          ? `Pi clock was ${skewLabel(skew)}; set to this browser.`
-          : `Pi clock set to this browser.`,
-      );
+      if (!quiet)
+        toast(
+          automatic
+            ? `Pi clock was ${skewLabel(skew)}; set to this browser.`
+            : `Pi clock set to this browser.`,
+        );
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -119,6 +120,8 @@ export default function App() {
       return;
     if (Math.abs(Date.now() - status.time_unix_ms) <= 1000) {
       autoSynced.current = true;
+      // Already correct, but confirm it so the Pi stops its unsynced beep.
+      if (status.time_synced === false) void syncTime(true, true);
       return;
     }
     autoSynced.current = true;
